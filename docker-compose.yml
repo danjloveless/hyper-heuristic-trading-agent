@@ -1,0 +1,157 @@
+version: '3.8'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      - CLICKHOUSE_DB=quantumtrade
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-password}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./scripts/setup-db.sql:/docker-entrypoint-initdb.d/setup-db.sql
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  data-ingestion:
+    build:
+      context: .
+      dockerfile: services/data-ingestion/Dockerfile
+    environment:
+      - RUST_LOG=info
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./shared:/app/shared
+
+  feature-engineering:
+    build:
+      context: .
+      dockerfile: services/feature-engineering/Dockerfile
+    environment:
+      - RUST_LOG=info
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./shared:/app/shared
+
+  hyper-heuristic:
+    build:
+      context: .
+      dockerfile: services/hyper-heuristic/Dockerfile
+    environment:
+      - RUST_LOG=info
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./shared:/app/shared
+
+  ml-inference:
+    build:
+      context: .
+      dockerfile: services/ml-inference/Dockerfile
+    environment:
+      - RUST_LOG=info
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./shared:/app/shared
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  explanation-service:
+    build:
+      context: .
+      dockerfile: services/explanation-service/Dockerfile
+    environment:
+      - PYTHONPATH=/app
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./shared:/app/shared
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - RUST_LOG=info
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./shared:/app/shared
+
+  performance-monitor:
+    build:
+      context: .
+      dockerfile: services/performance-monitor/Dockerfile
+    environment:
+      - RUST_LOG=info
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./shared:/app/shared
+
+volumes:
+  clickhouse_data:
+  redis_data: 

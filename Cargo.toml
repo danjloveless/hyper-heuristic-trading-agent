@@ -1,0 +1,27 @@
+[workspace]
+members = [
+    "services/data-ingestion",
+    "services/feature-engineering", 
+    "services/hyper-heuristic",
+    "services/ml-inference",
+    "services/api-gateway",
+    "services/performance-monitor",
+    "shared/types",
+    "shared/utils"
+]
+
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+axum = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.11", features = ["json"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+polars = "0.35"
+redis = { version = "0.23", features = ["tokio-comp"] }
+clickhouse = "0.11" 
