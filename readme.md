@@ -2,6 +2,8 @@ Explainable Financial Forecasting System
 
 ## Project Overview
 
+CURRENTLY IN EARLY DEVELOPMENT
+
 This is a high-performance, modular financial forecasting system built with Rust and Python that combines advanced machine learning with explainable AI to provide actionable trading insights. The system employs a microservices architecture where each component (data ingestion, feature engineering, ML inference, and explainability) operates as an independent, scalable service communicating through well-defined REST APIs. This modular design enables individual components to be developed, tested, deployed, and scaled independently while maintaining high performance and low latency.
 
 At its core, the system utilizes **Hyper Heuristic Strategy Selection** to dynamically choose optimal parameter weightings and model configurations based on current market conditions and regime detection. This adaptive approach allows the system to automatically select the best-performing strategies and adjust model parameters in real-time, rather than using static configurations.
