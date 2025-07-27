@@ -1,15 +1,24 @@
+# shared/utils/Cargo.toml
 [package]
 name = "shared-utils"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1.0", features = ["full"] }
-redis = { version = "0.23", features = ["tokio-comp"] }
-clickhouse = "0.11"
-tracing = "0.1"
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
-shared-types = { path = "../types" } 
+tokio = { workspace = true }
+clickhouse = { workspace = true }
+redis = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+url = "2.4"
+dotenvy = { workspace = true }
+shared-types = { path = "../types" }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+testcontainers = { workspace = true }

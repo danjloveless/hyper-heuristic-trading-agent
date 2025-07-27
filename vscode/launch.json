@@ -1,0 +1,27 @@
+// .vscode/launch.json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug shared-utils tests",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--package=shared-utils"
+                ],
+                "filter": {
+                    "name": "shared-utils",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUST_LOG": "debug"
+            }
+        }
+    ]
+}
