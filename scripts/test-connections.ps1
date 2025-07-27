@@ -59,5 +59,5 @@ try {
 Write-Host ""
 Write-Host "🎉 Connection tests completed!" -ForegroundColor Green
 Write-Host ""
-Write-Host "📋 Container status:" -ForegroundColor Cyan
+Write-Host " Container status:" -ForegroundColor Cyan
 docker-compose -f docker-compose.dev.yml ps
