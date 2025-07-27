@@ -1,0 +1,44 @@
+# services/data-ingestion/Cargo.toml
+[package]
+name = "data-ingestion"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace dependencies
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+config = { workspace = true }
+dotenvy = { workspace = true }
+
+# Shared crates
+shared-types = { path = "../../shared/types" }
+shared-utils = { path = "../../shared/utils" }
+
+# Service-specific dependencies
+url = "2.4"
+regex = "1.10"
+base64 = "0.21"
+htmlescape = "0.3"
+select = "0.6" # HTML parsing for news content
+rss = "2.0" # RSS feed parsing
+csv = "1.3" # For parsing CSV responses from financial APIs
+futures = "0.3"
+tokio-cron-scheduler = "0.9" # For background scheduling
+clap = { version = "4.4", features = ["derive", "env"] }
+toml = "0.8" # For parsing TOML configuration files
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+wiremock = "0.5" # For API mocking in tests
