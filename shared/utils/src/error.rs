@@ -6,9 +6,6 @@ pub enum QuantumTradeError {
     #[error("Database connection error: {0}")]
     DatabaseConnection(#[from] clickhouse::error::Error),
     
-    #[error("Redis connection error: {0}")]
-    RedisConnection(#[from] redis::RedisError),
-    
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
     

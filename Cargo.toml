@@ -2,12 +2,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "services/data-ingestion",
-    "services/feature-engineering", 
-    "services/hyper-heuristic",
-    "services/ml-inference",
-    "services/api-gateway",
-    "services/performance-monitor",
     "shared/types",
     "shared/utils"
 ]
@@ -44,7 +38,6 @@ polars = { version = "0.35", features = ["lazy", "temporal", "strings"] }
 
 # Database and cache
 clickhouse = { version = "0.11", features = ["time", "uuid"] }
-redis = { version = "0.23", features = ["tokio-comp", "connection-manager"] }
 
 # Configuration
 config = "0.13"

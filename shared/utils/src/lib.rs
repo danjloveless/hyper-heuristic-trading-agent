@@ -1,11 +1,9 @@
 // shared/utils/src/lib.rs
 pub mod clickhouse;
-pub mod redis;
 pub mod monitoring;
 pub mod error;
 
 pub use clickhouse::*;
-pub use redis::*;
 pub use monitoring::*;
 pub use error::*;
 

@@ -7,7 +7,6 @@ edition = "2021"
 [dependencies]
 tokio = { workspace = true }
 clickhouse = { workspace = true }
-redis = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }

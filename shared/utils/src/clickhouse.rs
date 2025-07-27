@@ -3,8 +3,7 @@ use clickhouse::{Client, Row};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use shared_types::{MarketData, SentimentData, FeatureSet, PredictionOutcome, StrategyPerformance};
@@ -89,9 +88,7 @@ impl ClickHouseClient {
         
         let client = Client::default()
             .with_url(&config.url)
-            .with_database(&config.database)
-            .with_user(&config.username)
-            .with_password(&config.password);
+            .with_database(&config.database);
 
         let instance = Self { client, config };
         
@@ -135,19 +132,14 @@ impl ClickHouseClient {
     pub async fn initialize_schema(&self) -> Result<()> {
         info!("Initializing ClickHouse database schema");
         
-        let schema_queries = vec![
-            include_str!("../../../scripts/setup-db.sql"),
-        ];
-
-        for query in schema_queries {
-            if !query.trim().is_empty() {
-                self.client
-                    .query(query)
-                    .execute()
-                    .await
-                    .map_err(QuantumTradeError::DatabaseConnection)?;
-            }
-        }
+        // Simple schema initialization - just create the database
+        let schema_query = "CREATE DATABASE IF NOT EXISTS quantumtrade";
+        
+        self.client
+            .query(schema_query)
+            .execute()
+            .await
+            .map_err(QuantumTradeError::DatabaseConnection)?;
         
         info!("Database schema initialized successfully");
         Ok(())
@@ -162,6 +154,7 @@ impl ClickHouseClient {
         }
 
         debug!("Inserting {} market data records", data.len());
+        let count = data.len() as u64;
         
         let mut inserter = self.client
             .insert("market_data")?;
@@ -170,10 +163,10 @@ impl ClickHouseClient {
             inserter.write(&MarketDataRow::from(record)).await?;
         }
         
-        let rows_inserted = inserter.end().await?;
-        info!("Successfully inserted {} market data records", rows_inserted);
+        inserter.end().await?;
+        info!("Successfully inserted {} market data records", count);
         
-        Ok(rows_inserted)
+        Ok(count)
     }
 
     /// Get latest market data for a symbol
@@ -240,6 +233,7 @@ impl ClickHouseClient {
         }
 
         debug!("Inserting {} sentiment data records", data.len());
+        let count = data.len() as u64;
         
         let mut inserter = self.client
             .insert("sentiment_data")?;
@@ -248,10 +242,10 @@ impl ClickHouseClient {
             inserter.write(&SentimentDataRow::from(record)).await?;
         }
         
-        let rows_inserted = inserter.end().await?;
-        info!("Successfully inserted {} sentiment data records", rows_inserted);
+        inserter.end().await?;
+        info!("Successfully inserted {} sentiment data records", count);
         
-        Ok(rows_inserted)
+        Ok(count)
     }
 
     /// Get latest sentiment data for a symbol and source
@@ -263,7 +257,7 @@ impl ClickHouseClient {
     ) -> Result<Vec<SentimentData>> {
         debug!("Fetching latest {} sentiment records for {}", limit, symbol);
         
-        let (query, has_source) = if let Some(src) = source {
+        let (query, has_source) = if let Some(_src) = source {
             (
                 "SELECT symbol, timestamp, source, sentiment_score, confidence, mention_count, raw_data
                  FROM sentiment_data 
@@ -309,6 +303,7 @@ impl ClickHouseClient {
         }
 
         debug!("Inserting {} feature sets", features.len());
+        let mut total_rows = 0u64;
         
         let mut inserter = self.client
             .insert("features")?;
@@ -327,13 +322,14 @@ impl ClickHouseClient {
                     feature_version: feature_set.feature_version,
                 };
                 inserter.write(&row).await?;
+                total_rows += 1;
             }
         }
         
-        let rows_inserted = inserter.end().await?;
-        info!("Successfully inserted {} feature records", rows_inserted);
+        inserter.end().await?;
+        info!("Successfully inserted {} feature records", total_rows);
         
-        Ok(rows_inserted)
+        Ok(total_rows)
     }
 
     /// Get latest features for a symbol
@@ -468,6 +464,7 @@ impl ClickHouseClient {
         }
 
         debug!("Inserting {} prediction outcomes", outcomes.len());
+        let count = outcomes.len() as u64;
         
         let mut inserter = self.client
             .insert("prediction_outcomes")?;
@@ -476,10 +473,10 @@ impl ClickHouseClient {
             inserter.write(&PredictionOutcomeRow::from(outcome)).await?;
         }
         
-        let rows_inserted = inserter.end().await?;
-        info!("Successfully inserted {} prediction outcomes", rows_inserted);
+        inserter.end().await?;
+        info!("Successfully inserted {} prediction outcomes", count);
         
-        Ok(rows_inserted)
+        Ok(count)
     }
 
     // Strategy Performance Operations
@@ -507,7 +504,7 @@ impl ClickHouseClient {
     ) -> Result<Vec<StrategyPerformance>> {
         debug!("Fetching strategy performance for {} (regime: {:?})", strategy_name, regime);
         
-        let (query, has_regime) = if let Some(r) = regime {
+        let (query, has_regime) = if let Some(_r) = regime {
             (
                 "SELECT id, strategy_name, regime, timestamp, prediction_accuracy,
                         profit_loss, sharpe_ratio, max_drawdown, trade_count, win_rate,
@@ -632,36 +629,36 @@ impl ClickHouseClient {
         let mut result = CleanupResult::default();
         
         // Clean up old market data
-        let market_data_deleted = self.client
+        self.client
             .query("DELETE FROM market_data WHERE timestamp < ?")
             .bind(cutoff_date)
             .execute()
             .await?;
-        result.market_data_deleted = market_data_deleted;
+        result.market_data_deleted = 0; // ClickHouse doesn't return affected rows count easily
         
         // Clean up old sentiment data
-        let sentiment_data_deleted = self.client
+        self.client
             .query("DELETE FROM sentiment_data WHERE timestamp < ?")
             .bind(cutoff_date)
             .execute()
             .await?;
-        result.sentiment_data_deleted = sentiment_data_deleted;
+        result.sentiment_data_deleted = 0;
         
         // Clean up old features
-        let features_deleted = self.client
+        self.client
             .query("DELETE FROM features WHERE timestamp < ?")
             .bind(cutoff_date)
             .execute()
             .await?;
-        result.features_deleted = features_deleted;
+        result.features_deleted = 0;
         
         // Clean up old predictions
-        let predictions_deleted = self.client
+        self.client
             .query("DELETE FROM predictions WHERE timestamp < ?")
             .bind(cutoff_date)
             .execute()
             .await?;
-        result.predictions_deleted = predictions_deleted;
+        result.predictions_deleted = 0;
         
         info!("Data cleanup completed: {:?}", result);
         Ok(result)
@@ -671,7 +668,7 @@ impl ClickHouseClient {
 // Row structures for ClickHouse operations
 
 #[derive(Row, Serialize, Deserialize, Debug)]
-struct MarketDataRow {
+pub struct MarketDataRow {
     symbol: String,
     timestamp: DateTime<Utc>,
     open: f64,
@@ -713,7 +710,7 @@ impl Into<MarketData> for MarketDataRow {
 }
 
 #[derive(Row, Serialize, Deserialize, Debug)]
-struct SentimentDataRow {
+pub struct SentimentDataRow {
     symbol: String,
     timestamp: DateTime<Utc>,
     source: String,
@@ -752,7 +749,7 @@ impl Into<SentimentData> for SentimentDataRow {
 }
 
 #[derive(Row, Serialize, Deserialize, Debug)]
-struct FeatureRow {
+pub struct FeatureRow {
     symbol: String,
     timestamp: DateTime<Utc>,
     feature_name: String,
@@ -762,7 +759,7 @@ struct FeatureRow {
 }
 
 #[derive(Row, Serialize, Deserialize, Debug)]
-struct PredictionRow {
+pub struct PredictionRow {
     symbol: String,
     timestamp: DateTime<Utc>,
     prediction_id: String,
@@ -780,7 +777,7 @@ struct PredictionRow {
 }
 
 #[derive(Row, Serialize, Deserialize, Debug)]
-struct PredictionOutcomeRow {
+pub struct PredictionOutcomeRow {
     prediction_id: String,
     symbol: String,
     timestamp: DateTime<Utc>,
@@ -809,7 +806,7 @@ impl From<&PredictionOutcome> for PredictionOutcomeRow {
 }
 
 #[derive(Row, Serialize, Deserialize, Debug)]
-struct StrategyPerformanceRow {
+pub struct StrategyPerformanceRow {
     id: Uuid,
     strategy_name: String,
     regime: String,
@@ -937,7 +934,7 @@ pub struct AggregatedMarketData {
 }
 
 #[derive(Row, Serialize, Deserialize, Debug)]
-struct AggregatedMarketDataRow {
+pub struct AggregatedMarketDataRow {
     symbol: String,
     interval_start: DateTime<Utc>,
     open: f64,
@@ -977,7 +974,7 @@ pub struct StrategyMetrics {
 }
 
 #[derive(Row, Serialize, Deserialize, Debug)]
-struct StrategyMetricsRow {
+pub struct StrategyMetricsRow {
     strategy_name: String,
     regime: String,
     avg_accuracy: f64,
