@@ -12,12 +12,11 @@ use async_trait::async_trait;
 use chrono::Utc;
 use dashmap::DashMap;
 use futures::stream::StreamExt;
-use parking_lot::RwLock;
+use tokio::sync::Mutex;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     collections::HashMap,
     sync::Arc,
-    time::Duration,
 };
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
@@ -28,7 +27,7 @@ pub type Result<T> = std::result::Result<T, ConfigurationError>;
 pub trait ConfigurationManager: Send + Sync {
     // Configuration retrieval
     async fn get_config<T: DeserializeOwned>(&self, key: &str) -> Result<T>;
-    async fn get_config_with_default<T: DeserializeOwned>(&self, key: &str, default: T) -> Result<T>;
+    async fn get_config_with_default<T: DeserializeOwned + Send>(&self, key: &str, default: T) -> Result<T>;
     async fn get_all_configs(&self, prefix: &str) -> Result<HashMap<String, serde_json::Value>>;
     
     // Secret management
@@ -49,13 +48,23 @@ pub trait ConfigurationManager: Send + Sync {
     
     // Watchers and notifications
     async fn watch_config(&self, key: &str) -> Result<ConfigWatcher>;
-    async fn subscribe_to_changes(&self) -> Result<broadcast::Receiver<ConfigurationChange>>;
+    async fn subscribe_to_changes(&self) -> Result<ConfigChangeStream>;
+    
+    // Service-specific configuration methods
+    async fn get_service_config(&self) -> Result<ServiceConfig>;
+    async fn get_database_config(&self) -> Result<DatabaseConfig>;
+    async fn get_api_config(&self) -> Result<ApiConfig>;
+    async fn get_logging_config(&self) -> Result<LoggingConfig>;
+    async fn get_monitoring_config(&self) -> Result<MonitoringConfig>;
+    async fn get_market_data_config(&self) -> Result<MarketDataIngestionConfig>;
+    async fn get_technical_indicators_config(&self) -> Result<TechnicalIndicatorsConfig>;
+    async fn get_prediction_service_config(&self) -> Result<PredictionServiceConfig>;
 }
 
 pub struct ConfigurationManagerImpl {
     config_store: Arc<ConfigStore>,
-    secret_manager: Arc<SecretManager>,
-    feature_flags: Arc<FeatureFlags>,
+    secret_manager: Arc<Mutex<SecretManager>>,
+    feature_flags: Arc<Mutex<FeatureFlags>>,
     config_validator: Arc<ConfigValidator>,
     config_watcher: Arc<ConfigWatcher>,
     change_sender: broadcast::Sender<ConfigurationChange>,
@@ -71,8 +80,8 @@ impl ConfigurationManagerImpl {
         let (change_sender, _) = broadcast::channel(1000);
         
         let config_store = Arc::new(ConfigStore::new(config_sources).await?);
-        let secret_manager = Arc::new(SecretManager::new().await?);
-        let feature_flags = Arc::new(FeatureFlags::new().await?);
+        let secret_manager = Arc::new(Mutex::new(SecretManager::new().await?));
+        let feature_flags = Arc::new(Mutex::new(FeatureFlags::new().await?));
         let config_validator = Arc::new(ConfigValidator::new().await?);
         let config_watcher = Arc::new(ConfigWatcher::new(change_sender.clone()).await?);
         
@@ -101,18 +110,90 @@ impl ConfigurationManagerImpl {
     async fn load_initial_config(&self) -> Result<()> {
         info!("Loading initial configuration for environment: {}", self.environment);
         
-        // Load base configuration
-        let base_config = self.config_store.load_config("base").await?;
-        self.cache.insert("base".to_string(), base_config);
+        // Load base configuration with fallback to defaults
+        match self.config_store.load_config("base").await {
+            Ok(base_config) => {
+                self.cache.insert("base".to_string(), base_config);
+                info!("Loaded base configuration");
+            }
+            Err(ConfigurationError::ConfigNotFound { .. }) => {
+                warn!("Base configuration not found, using defaults");
+                let default_config = serde_json::to_value(ServiceConfig::default())?;
+                self.cache.insert("base".to_string(), default_config);
+            }
+            Err(e) => {
+                warn!("Failed to load base configuration: {}, using defaults", e);
+                let default_config = serde_json::to_value(ServiceConfig::default())?;
+                self.cache.insert("base".to_string(), default_config);
+            }
+        }
         
-        // Load environment-specific configuration
-        let env_config = self.config_store.load_config(&self.environment.to_string()).await?;
-        self.cache.insert(self.environment.to_string(), env_config);
+        // Load environment-specific configuration with fallback
+        match self.config_store.load_config(&self.environment.to_string()).await {
+            Ok(env_config) => {
+                self.cache.insert(self.environment.to_string(), env_config);
+                info!("Loaded environment-specific configuration");
+            }
+            Err(ConfigurationError::ConfigNotFound { .. }) => {
+                warn!("Environment-specific configuration not found, using base config");
+            }
+            Err(e) => {
+                warn!("Failed to load environment configuration: {}, using base config", e);
+            }
+        }
+        
+        // Load service-specific configurations
+        self.load_service_configs().await?;
         
         // Validate configuration
-        self.validate_configuration().await?;
+        match self.validate_configuration().await {
+            Ok(validation_result) => {
+                if !validation_result.is_valid {
+                    warn!("Configuration validation failed with {} errors, {} warnings", 
+                          validation_result.errors.len(), validation_result.warnings.len());
+                    for error in &validation_result.errors {
+                        error!("Configuration error: {} - {}", error.field, error.message);
+                    }
+                    for warning in &validation_result.warnings {
+                        warn!("Configuration warning: {} - {}", warning.field, warning.message);
+                    }
+                } else {
+                    info!("Configuration validation passed");
+                }
+            }
+            Err(e) => {
+                warn!("Configuration validation failed: {}", e);
+            }
+        }
         
         info!("Initial configuration loaded successfully");
+        Ok(())
+    }
+    
+    async fn load_service_configs(&self) -> Result<()> {
+        let service_configs: Vec<(&str, serde_json::Value)> = vec![
+            ("market_data_ingestion", serde_json::to_value(MarketDataIngestionConfig::default())?),
+            ("technical_indicators", serde_json::to_value(TechnicalIndicatorsConfig::default())?),
+            ("prediction_service", serde_json::to_value(PredictionServiceConfig::default())?),
+        ];
+        
+        for (key, default_config) in service_configs {
+            match self.config_store.load_config(key).await {
+                Ok(config) => {
+                    self.cache.insert(key.to_string(), config);
+                    debug!("Loaded service configuration: {}", key);
+                }
+                Err(ConfigurationError::ConfigNotFound { .. }) => {
+                    self.cache.insert(key.to_string(), default_config);
+                    debug!("Using default configuration for service: {}", key);
+                }
+                Err(e) => {
+                    warn!("Failed to load service configuration {}: {}, using defaults", key, e);
+                    self.cache.insert(key.to_string(), default_config);
+                }
+            }
+        }
+        
         Ok(())
     }
     
@@ -157,6 +238,7 @@ impl ConfigurationManagerImpl {
         }
     }
     
+    #[allow(dead_code)]
     async fn set_cached_config<T: Serialize>(&self, key: &str, config: &T) -> Result<()> {
         let value = serde_json::to_value(config)?;
         self.cache.insert(key.to_string(), value);
@@ -184,7 +266,7 @@ impl ConfigurationManager for ConfigurationManagerImpl {
         Ok(config)
     }
     
-    async fn get_config_with_default<T: DeserializeOwned>(&self, key: &str, default: T) -> Result<T> {
+    async fn get_config_with_default<T: DeserializeOwned + Send>(&self, key: &str, default: T) -> Result<T> {
         match self.get_config::<T>(key).await {
             Ok(config) => Ok(config),
             Err(ConfigurationError::ConfigNotFound { .. }) => {
@@ -220,37 +302,44 @@ impl ConfigurationManager for ConfigurationManagerImpl {
     
     async fn get_secret(&self, secret_name: &str) -> Result<String> {
         debug!("Getting secret: {}", secret_name);
-        self.secret_manager.get_secret(secret_name).await
+        let mut secret_manager = self.secret_manager.lock().await;
+        secret_manager.get_secret(secret_name).await
     }
     
     async fn set_secret(&self, secret_name: &str, value: &str) -> Result<()> {
         debug!("Setting secret: {}", secret_name);
-        self.secret_manager.set_secret(secret_name, value).await
+        let secret_manager = self.secret_manager.lock().await;
+        secret_manager.set_secret(secret_name, value).await
     }
     
     async fn rotate_secret(&self, secret_name: &str) -> Result<String> {
         debug!("Rotating secret: {}", secret_name);
-        self.secret_manager.rotate_secret(secret_name).await
+        let secret_manager = self.secret_manager.lock().await;
+        secret_manager.rotate_secret(secret_name).await
     }
     
     async fn is_feature_enabled(&self, feature_name: &str) -> Result<bool> {
         debug!("Checking if feature is enabled: {}", feature_name);
-        self.feature_flags.is_enabled(feature_name).await
+        let feature_flags = self.feature_flags.lock().await;
+        feature_flags.is_enabled(feature_name).await
     }
     
     async fn get_feature_config<T: DeserializeOwned>(&self, feature_name: &str) -> Result<Option<T>> {
         debug!("Getting feature config: {}", feature_name);
-        self.feature_flags.get_config::<T>(feature_name).await
+        let feature_flags = self.feature_flags.lock().await;
+        feature_flags.get_config::<T>(feature_name).await
     }
     
     async fn enable_feature(&self, feature_name: &str, config: Option<serde_json::Value>) -> Result<()> {
         debug!("Enabling feature: {}", feature_name);
-        self.feature_flags.enable_feature(feature_name, config).await
+        let mut feature_flags = self.feature_flags.lock().await;
+        feature_flags.enable_feature(feature_name, config).await
     }
     
     async fn disable_feature(&self, feature_name: &str) -> Result<()> {
         debug!("Disabling feature: {}", feature_name);
-        self.feature_flags.disable_feature(feature_name).await
+        let mut feature_flags = self.feature_flags.lock().await;
+        feature_flags.disable_feature(feature_name).await
     }
     
     async fn update_config(&self, key: &str, value: serde_json::Value) -> Result<()> {
@@ -332,35 +421,43 @@ impl ConfigurationManager for ConfigurationManagerImpl {
         self.config_watcher.watch_config(key).await
     }
     
-    async fn subscribe_to_changes(&self) -> Result<broadcast::Receiver<ConfigurationChange>> {
+    async fn subscribe_to_changes(&self) -> Result<ConfigChangeStream> {
         debug!("Subscribing to configuration changes");
         Ok(self.change_sender.subscribe())
     }
-}
-
-// Convenience methods for common configuration types
-impl ConfigurationManagerImpl {
-    pub async fn get_service_config(&self) -> Result<ServiceConfig> {
+    
+    // Service-specific configuration methods
+    async fn get_service_config(&self) -> Result<ServiceConfig> {
         self.get_config("service").await
     }
     
-    pub async fn get_database_config(&self) -> Result<DatabaseConfig> {
+    async fn get_database_config(&self) -> Result<DatabaseConfig> {
         self.get_config("database").await
     }
     
-    pub async fn get_api_config(&self) -> Result<ApiConfig> {
+    async fn get_api_config(&self) -> Result<ApiConfig> {
         self.get_config("apis").await
     }
     
-    pub async fn get_logging_config(&self) -> Result<LoggingConfig> {
+    async fn get_logging_config(&self) -> Result<LoggingConfig> {
         self.get_config("logging").await
     }
     
-    pub async fn get_monitoring_config(&self) -> Result<MonitoringConfig> {
+    async fn get_monitoring_config(&self) -> Result<MonitoringConfig> {
         self.get_config("monitoring").await
     }
     
-    pub async fn get_market_data_config(&self) -> Result<MarketDataIngestionConfig> {
+    async fn get_market_data_config(&self) -> Result<MarketDataIngestionConfig> {
         self.get_config("market_data_ingestion").await
     }
-} 
+    
+    async fn get_technical_indicators_config(&self) -> Result<TechnicalIndicatorsConfig> {
+        self.get_config("technical_indicators").await
+    }
+    
+    async fn get_prediction_service_config(&self) -> Result<PredictionServiceConfig> {
+        self.get_config("prediction_service").await
+    }
+}
+
+ 

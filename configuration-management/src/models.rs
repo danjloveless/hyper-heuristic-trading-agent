@@ -1,8 +1,11 @@
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use validator::Validate;
+use tokio::sync::broadcast;
+
+// Type alias for configuration change stream
+pub type ConfigChangeStream = broadcast::Receiver<ConfigurationChange>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct ServiceConfig {
@@ -179,6 +182,118 @@ pub struct MarketDataIngestionConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct TechnicalIndicatorsConfig {
+    pub supported_indicators: Vec<IndicatorType>,
+    pub calculation_modes: CalculationModeConfig,
+    pub caching: CachingConfig,
+    pub performance: PerformanceConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct PredictionServiceConfig {
+    pub models: ModelConfig,
+    pub prediction_horizons: Vec<u32>,
+    pub confidence_thresholds: ConfidenceConfig,
+    pub performance_targets: PerformanceTargetConfig,
+}
+
+// Supporting types for TechnicalIndicatorsConfig
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum IndicatorType {
+    SMA,
+    EMA,
+    RSI,
+    MACD,
+    BollingerBands,
+    Stochastic,
+    WilliamsR,
+    ATR,
+    Custom { name: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct CalculationModeConfig {
+    pub real_time: bool,
+    pub batch_processing: bool,
+    pub parallel_calculation: bool,
+    pub max_parallel_tasks: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct CachingConfig {
+    pub enabled: bool,
+    pub ttl_seconds: u32,
+    pub max_cache_size: usize,
+    pub cache_strategy: CacheStrategy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CacheStrategy {
+    LRU,
+    LFU,
+    FIFO,
+    TTL,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct PerformanceConfig {
+    pub max_calculation_time_ms: u64,
+    pub memory_limit_mb: u32,
+    pub cpu_limit_percent: u8,
+    pub enable_profiling: bool,
+}
+
+// Supporting types for PredictionServiceConfig
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct ModelConfig {
+    pub model_type: ModelType,
+    pub version: String,
+    pub parameters: HashMap<String, serde_json::Value>,
+    pub training_config: TrainingConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ModelType {
+    LSTM,
+    GRU,
+    Transformer,
+    RandomForest,
+    XGBoost,
+    Custom { name: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct TrainingConfig {
+    pub epochs: u32,
+    pub batch_size: u32,
+    pub learning_rate: f64,
+    pub validation_split: f64,
+    pub early_stopping: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct ConfidenceConfig {
+    pub min_confidence: f64,
+    pub max_confidence: f64,
+    pub confidence_thresholds: HashMap<String, f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct PerformanceTargetConfig {
+    pub accuracy_target: f64,
+    pub latency_target_ms: u64,
+    pub throughput_target: u32,
+    pub resource_limits: ResourceLimits,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct ResourceLimits {
+    pub max_memory_mb: u32,
+    pub max_cpu_percent: u8,
+    pub max_gpu_memory_mb: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct UpdateIntervalConfig {
     pub real_time_seconds: u32,
     pub intraday_minutes: u32,
@@ -352,6 +467,271 @@ impl Default for AlertingConfig {
             sns_topic_arn: None,
             slack_webhook: None,
             email_recipients: Vec::new(),
+        }
+    }
+}
+
+// Production-ready default configurations
+impl Default for ServiceConfig {
+    fn default() -> Self {
+        Self {
+            service_name: "quantumtrade-service".to_string(),
+            environment: Environment::Development,
+            database: DatabaseConfig::default(),
+            apis: ApiConfig::default(),
+            logging: LoggingConfig::default(),
+            monitoring: MonitoringConfig::default(),
+            features: HashMap::new(),
+        }
+    }
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            clickhouse: ClickHouseConfig::default(),
+            redis: RedisConfig::default(),
+            connection_pool: ConnectionPoolConfig::default(),
+        }
+    }
+}
+
+impl Default for ClickHouseConfig {
+    fn default() -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port: 8123,
+            database: "quantumtrade".to_string(),
+            username: None,
+            password: None,
+            connection_pool: ConnectionPoolConfig::default(),
+        }
+    }
+}
+
+impl Default for RedisConfig {
+    fn default() -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port: 6379,
+            database: 0,
+            username: None,
+            password: None,
+            connection_pool: ConnectionPoolConfig::default(),
+        }
+    }
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            alpha_vantage: AlphaVantageConfig::default(),
+            alpha_intelligence: AlphaIntelligenceConfig::default(),
+            rate_limits: RateLimitConfig::default(),
+            timeout_ms: 10000,
+            retry_config: RetryConfig::default(),
+        }
+    }
+}
+
+impl Default for AlphaVantageConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "https://www.alphavantage.co".to_string(),
+            api_key: "".to_string(), // Must be set via environment
+            rate_limit: RateLimitConfig::default(),
+            timeout_ms: 10000,
+        }
+    }
+}
+
+impl Default for AlphaIntelligenceConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "https://www.alphavantage.co/query".to_string(),
+            api_key: "".to_string(), // Must be set via environment
+            rate_limit: RateLimitConfig::default(),
+            timeout_ms: 10000,
+        }
+    }
+}
+
+impl Default for MarketDataIngestionConfig {
+    fn default() -> Self {
+        Self {
+            alpha_vantage: AlphaVantageConfig::default(),
+            symbols: vec!["AAPL".to_string(), "GOOGL".to_string(), "MSFT".to_string()],
+            update_intervals: UpdateIntervalConfig::default(),
+            data_quality: DataQualityConfig::default(),
+            error_handling: ErrorHandlingConfig::default(),
+        }
+    }
+}
+
+impl Default for TechnicalIndicatorsConfig {
+    fn default() -> Self {
+        Self {
+            supported_indicators: vec![
+                IndicatorType::SMA,
+                IndicatorType::EMA,
+                IndicatorType::RSI,
+                IndicatorType::MACD,
+            ],
+            calculation_modes: CalculationModeConfig::default(),
+            caching: CachingConfig::default(),
+            performance: PerformanceConfig::default(),
+        }
+    }
+}
+
+impl Default for PredictionServiceConfig {
+    fn default() -> Self {
+        Self {
+            models: ModelConfig::default(),
+            prediction_horizons: vec![1, 5, 10, 30],
+            confidence_thresholds: ConfidenceConfig::default(),
+            performance_targets: PerformanceTargetConfig::default(),
+        }
+    }
+}
+
+impl Default for UpdateIntervalConfig {
+    fn default() -> Self {
+        Self {
+            real_time_seconds: 1,
+            intraday_minutes: 5,
+            daily_hours: 1,
+            weekly_hours: 24,
+        }
+    }
+}
+
+impl Default for DataQualityConfig {
+    fn default() -> Self {
+        Self {
+            min_quality_score: 80,
+            validation_rules: Vec::new(),
+            outlier_detection: OutlierDetectionConfig::default(),
+        }
+    }
+}
+
+impl Default for OutlierDetectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            method: OutlierDetectionMethod::ZScore,
+            threshold: 3.0,
+            window_size: 100,
+        }
+    }
+}
+
+impl Default for ErrorHandlingConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            retry_delay_ms: 1000,
+            circuit_breaker: CircuitBreakerConfig::default(),
+            fallback_strategies: vec![FallbackStrategy::Cache],
+        }
+    }
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            failure_threshold: 5,
+            success_threshold: 2,
+            timeout_ms: 30000,
+            half_open_max_calls: 3,
+        }
+    }
+}
+
+impl Default for CalculationModeConfig {
+    fn default() -> Self {
+        Self {
+            real_time: true,
+            batch_processing: false,
+            parallel_calculation: true,
+            max_parallel_tasks: 4,
+        }
+    }
+}
+
+impl Default for CachingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            ttl_seconds: 300,
+            max_cache_size: 10000,
+            cache_strategy: CacheStrategy::LRU,
+        }
+    }
+}
+
+impl Default for PerformanceConfig {
+    fn default() -> Self {
+        Self {
+            max_calculation_time_ms: 5000,
+            memory_limit_mb: 512,
+            cpu_limit_percent: 80,
+            enable_profiling: false,
+        }
+    }
+}
+
+impl Default for ModelConfig {
+    fn default() -> Self {
+        Self {
+            model_type: ModelType::LSTM,
+            version: "1.0.0".to_string(),
+            parameters: HashMap::new(),
+            training_config: TrainingConfig::default(),
+        }
+    }
+}
+
+impl Default for TrainingConfig {
+    fn default() -> Self {
+        Self {
+            epochs: 100,
+            batch_size: 32,
+            learning_rate: 0.001,
+            validation_split: 0.2,
+            early_stopping: true,
+        }
+    }
+}
+
+impl Default for ConfidenceConfig {
+    fn default() -> Self {
+        Self {
+            min_confidence: 0.6,
+            max_confidence: 0.95,
+            confidence_thresholds: HashMap::new(),
+        }
+    }
+}
+
+impl Default for PerformanceTargetConfig {
+    fn default() -> Self {
+        Self {
+            accuracy_target: 0.85,
+            latency_target_ms: 100,
+            throughput_target: 1000,
+            resource_limits: ResourceLimits::default(),
+        }
+    }
+}
+
+impl Default for ResourceLimits {
+    fn default() -> Self {
+        Self {
+            max_memory_mb: 2048,
+            max_cpu_percent: 90,
+            max_gpu_memory_mb: None,
         }
     }
 } 

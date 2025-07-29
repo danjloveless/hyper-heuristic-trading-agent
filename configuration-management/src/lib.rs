@@ -4,6 +4,7 @@ pub mod config_validator;
 pub mod config_watcher;
 pub mod errors;
 pub mod feature_flags;
+pub mod health;
 pub mod models;
 pub mod secret_manager;
 pub mod sources;

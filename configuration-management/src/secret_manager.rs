@@ -3,7 +3,7 @@ use aws_config::BehaviorVersion;
 use aws_sdk_secretsmanager::Client as SecretsManagerClient;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 pub type Result<T> = std::result::Result<T, ConfigurationError>;
 
@@ -17,6 +17,7 @@ pub struct SecretMetadata {
     pub tags: HashMap<String, String>,
 }
 
+#[derive(Clone)]
 pub struct SecretManager {
     client: SecretsManagerClient,
     cache: std::collections::HashMap<String, (String, chrono::DateTime<chrono::Utc>)>,
@@ -190,12 +191,11 @@ impl SecretManager {
         let mut request = self.client.list_secrets();
         
         if let Some(prefix) = prefix {
-            request = request.filters(
-                aws_sdk_secretsmanager::types::Filter::builder()
-                    .key(aws_sdk_secretsmanager::types::FilterNameStringType::Name)
-                    .values(prefix)
-                    .build()?,
-            );
+            let filter = aws_sdk_secretsmanager::types::Filter::builder()
+                .key(aws_sdk_secretsmanager::types::FilterNameStringType::Name)
+                .values(prefix)
+                .build();
+            request = request.filters(filter);
         }
         
         let result = request.send().await;
@@ -204,16 +204,21 @@ impl SecretManager {
             Ok(response) => {
                 let mut secrets = Vec::new();
                 
-                for secret in response.secret_list().unwrap_or_default() {
+                for secret in response.secret_list() {
                     let metadata = SecretMetadata {
                         name: secret.name().unwrap_or_default().to_string(),
                         description: secret.description().map(|s| s.to_string()),
-                        created_at: secret.created_date().unwrap_or_default(),
-                        last_modified: secret.last_modified_date().unwrap_or_default(),
-                        version_id: secret.version_id().unwrap_or_default().to_string(),
+                        created_at: secret.created_date()
+                            .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
+                            .unwrap_or_default()
+                            .unwrap_or_default(),
+                        last_modified: secret.last_rotated_date()
+                            .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
+                            .unwrap_or_default()
+                            .unwrap_or_default(),
+                        version_id: "latest".to_string(),
                         tags: secret
                             .tags()
-                            .unwrap_or_default()
                             .iter()
                             .map(|tag| {
                                 (
@@ -253,12 +258,17 @@ impl SecretManager {
                 let metadata = SecretMetadata {
                     name: response.name().unwrap_or_default().to_string(),
                     description: response.description().map(|s| s.to_string()),
-                    created_at: response.created_date().unwrap_or_default(),
-                    last_modified: response.last_modified_date().unwrap_or_default(),
-                    version_id: response.version_id().unwrap_or_default().to_string(),
+                    created_at: response.created_date()
+                        .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
+                        .unwrap_or_default()
+                        .unwrap_or_default(),
+                    last_modified: response.last_rotated_date()
+                        .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
+                        .unwrap_or_default()
+                        .unwrap_or_default(),
+                    version_id: "latest".to_string(),
                     tags: response
                         .tags()
-                        .unwrap_or_default()
                         .iter()
                         .map(|tag| {
                             (
@@ -282,10 +292,10 @@ impl SecretManager {
     
     async fn generate_secret_value(&self) -> Result<String> {
         // Generate a cryptographically secure random string
-        use rand::{distributions::Alphanumeric, Rng};
+        use rand::Rng;
         
-        let secret: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
+        let secret: String = rand::rngs::OsRng
+            .sample_iter(&rand::distributions::Alphanumeric)
             .take(32)
             .map(char::from)
             .collect();

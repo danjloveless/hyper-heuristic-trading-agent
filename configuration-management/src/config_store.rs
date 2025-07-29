@@ -1,8 +1,7 @@
 use crate::{errors::ConfigurationError, sources::ConfigSource};
-use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 pub type Result<T> = std::result::Result<T, ConfigurationError>;
 

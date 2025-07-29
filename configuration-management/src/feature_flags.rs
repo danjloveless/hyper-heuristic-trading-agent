@@ -1,5 +1,4 @@
 use crate::{errors::ConfigurationError, models::FeatureConfig};
-use async_trait::async_trait;
 use chrono::Utc;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
@@ -50,11 +49,21 @@ impl FeatureFlags {
     pub async fn enable_feature(&mut self, feature_name: &str, config: Option<serde_json::Value>) -> Result<()> {
         debug!("Enabling feature: {}", feature_name);
         
+        let parameters = if let Some(config_value) = config {
+            if let Ok(parsed) = serde_json::from_value::<HashMap<String, serde_json::Value>>(config_value) {
+                parsed
+            } else {
+                HashMap::new()
+            }
+        } else {
+            HashMap::new()
+        };
+        
         let feature_config = FeatureConfig {
             enabled: true,
             rollout_percentage: 100.0,
             target_groups: Vec::new(),
-            parameters: config.unwrap_or_default(),
+            parameters,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
