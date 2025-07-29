@@ -1,0 +1,27 @@
+[package]
+name = "database-abstraction"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace dependencies
+tokio = { workspace = true }
+async-trait = { workspace = true }
+clickhouse = { workspace = true }
+redis = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+config = { workspace = true }
+
+# Local dependencies
+shared-types = { path = "../shared-types" }
+
+# Additional dependencies
+futures = "0.3"
+bb8 = "0.8"  # Connection pooling
+bb8-redis = "0.13"
