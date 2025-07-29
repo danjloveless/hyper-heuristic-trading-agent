@@ -9,9 +9,9 @@ services:
       CLICKHOUSE_DB: quantumtrade
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./config/clickhouse-config.xml:/etc/clickhouse-server/config.xml
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 30s

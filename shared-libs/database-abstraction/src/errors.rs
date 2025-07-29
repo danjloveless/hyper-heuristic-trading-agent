@@ -15,7 +15,7 @@ pub enum DatabaseError {
     ClickHouseError(#[from] clickhouse::error::Error),
     
     #[error("Redis error: {0}")]
-    RedisError(#[from] redis::RedisError),
+    RedisError(#[from] bb8_redis::redis::RedisError),
     
     #[error("Migration error: {message}")]
     MigrationError { message: String },

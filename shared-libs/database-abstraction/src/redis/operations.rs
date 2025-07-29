@@ -1,5 +1,5 @@
 use chrono::Duration;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::Serialize;
 use shared_types::*;
 
 use crate::{errors::DatabaseError, redis::RedisClient, traits::CacheClient};

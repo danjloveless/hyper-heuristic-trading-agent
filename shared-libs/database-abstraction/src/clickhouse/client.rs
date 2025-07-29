@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use clickhouse::{Client, Row};
 use shared_types::*;
-use tracing::{error, info, warn};
+use tracing::info;
+use num_traits::cast::ToPrimitive;
+use num_traits::FromPrimitive;
 
 use crate::{
     config::ClickHouseConfig,
@@ -87,55 +89,31 @@ impl ClickHouseClient {
                     .execute()
                     .await
                     .map_err(|e| DatabaseError::MigrationError {
-                        message: format!(
-                            "Failed to execute migration {} ({}): {}", 
-                            migration.version, migration.name, e
-                        ),
+                        message: format!("Failed to execute migration {} ({}): {}", 
+                            migration.version, migration.name, e),
                     })?;
-
-                // Record migration execution
-                let record_sql = format!(
-                    "INSERT INTO __migrations (version, name) VALUES ({}, '{}')",
-                    migration.version, migration.name
-                );
                 
-                self.client.query(&record_sql)
-                    .execute()
-                    .await
-                    .map_err(|e| DatabaseError::MigrationError {
-                        message: format!("Failed to record migration execution: {}", e),
-                    })?;
+                // Record migration as executed
+                self.client.query(
+                    "INSERT INTO __migrations (version, name) VALUES (?, ?)"
+                )
+                .bind(migration.version)
+                .bind(&migration.name)
+                .execute()
+                .await
+                .map_err(|e| DatabaseError::MigrationError {
+                    message: format!("Failed to record migration {}: {}", migration.version, e),
+                })?;
             }
         }
-
+        
         info!("ClickHouse migrations completed successfully");
         Ok(())
     }
-
-    async fn execute_with_retry<F, T>(&self, operation: F) -> Result<T, DatabaseError>
-    where
-        F: Fn() -> futures::future::BoxFuture<'_, Result<T, clickhouse::error::Error>>,
-    {
-        let mut last_error = None;
-        
-        for attempt in 0..self.config.retry_attempts {
-            match operation().await {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    last_error = Some(e);
-                    if attempt < self.config.retry_attempts - 1 {
-                        warn!("ClickHouse operation failed, retrying (attempt {})", attempt + 1);
-                        tokio::time::sleep(std::time::Duration::from_millis(100 * (attempt + 1) as u64)).await;
-                    }
-                }
-            }
-        }
-        
-        Err(DatabaseError::ClickHouseError(last_error.unwrap()))
-    }
 }
 
-#[derive(Row, serde::Deserialize)]
+// Row structs for ClickHouse tables
+#[derive(Row, serde::Deserialize, serde::Serialize)]
 struct MarketDataRow {
     symbol: String,
     timestamp: DateTime<Utc>,
@@ -145,6 +123,92 @@ struct MarketDataRow {
     close: f64,
     volume: u64,
     adjusted_close: f64,
+}
+
+#[derive(Row, serde::Deserialize, serde::Serialize)]
+struct SentimentDataRow {
+    article_id: String,
+    symbol: String,
+    timestamp: DateTime<Utc>,
+    title: String,
+    content: String,
+    source: String,
+    sentiment_score: f32,
+    confidence: f32,
+    entities: String,
+    relevance_score: f32,
+    market_impact: Option<f32>,
+}
+
+#[derive(Row, serde::Deserialize, serde::Serialize)]
+struct AggregatedSentimentRow {
+    symbol: String,
+    timestamp: DateTime<Utc>,
+    overall_sentiment: f32,
+    confidence_weighted_sentiment: f32,
+    article_count: u32,
+    bullish_count: u32,
+    bearish_count: u32,
+    neutral_count: u32,
+}
+
+#[derive(Row, serde::Deserialize, serde::Serialize)]
+struct FeatureSetRow {
+    symbol: String,
+    timestamp: DateTime<Utc>,
+    features: String,
+    feature_metadata: String,
+    feature_version: u16,
+}
+
+#[derive(Row, serde::Deserialize, serde::Serialize)]
+struct TechnicalIndicatorsRow {
+    symbol: String,
+    timestamp: DateTime<Utc>,
+    sma_20: f64,
+    ema_12: f64,
+    ema_26: f64,
+    macd: f64,
+    macd_signal: f64,
+    rsi: f64,
+    bollinger_upper: f64,
+    bollinger_lower: f64,
+    volume_sma_20: f64,
+}
+
+#[derive(Row, serde::Deserialize, serde::Serialize)]
+struct PredictionResultRow {
+    prediction_id: String,
+    symbol: String,
+    timestamp: DateTime<Utc>,
+    predicted_price: f64,
+    confidence: f32,
+    horizon_minutes: u16,
+    strategy_name: String,
+    model_version: String,
+    explanation: Option<String>,
+}
+
+#[derive(Row, serde::Deserialize, serde::Serialize)]
+struct PredictionOutcomeRow {
+    prediction_id: String,
+    actual_price: f64,
+    accuracy_score: f32,
+    directional_accuracy: bool,
+    outcome_timestamp: DateTime<Utc>,
+}
+
+#[derive(Row, serde::Deserialize, serde::Serialize)]
+struct StrategyPerformanceRow {
+    strategy_name: String,
+    symbol: String,
+    timestamp: DateTime<Utc>,
+    total_predictions: u32,
+    accuracy_rate: f32,
+    avg_confidence: f32,
+    profit_loss: f64,
+    sharpe_ratio: f32,
+    max_drawdown: f32,
 }
 
 impl From<MarketDataRow> for MarketData {
@@ -162,6 +226,95 @@ impl From<MarketDataRow> for MarketData {
     }
 }
 
+impl From<SentimentDataRow> for SentimentData {
+    fn from(row: SentimentDataRow) -> Self {
+        Self {
+            article_id: row.article_id,
+            symbol: row.symbol,
+            timestamp: row.timestamp,
+            title: row.title,
+            content: row.content,
+            source: row.source,
+            sentiment_score: row.sentiment_score,
+            confidence: row.confidence,
+            entities: serde_json::from_str(&row.entities).unwrap_or_default(),
+            relevance_score: row.relevance_score,
+            market_impact: row.market_impact,
+        }
+    }
+}
+
+impl From<AggregatedSentimentRow> for AggregatedSentiment {
+    fn from(row: AggregatedSentimentRow) -> Self {
+        Self {
+            symbol: row.symbol,
+            timestamp: row.timestamp,
+            overall_sentiment: row.overall_sentiment,
+            confidence_weighted_sentiment: row.confidence_weighted_sentiment,
+            article_count: row.article_count,
+            bullish_count: row.bullish_count,
+            bearish_count: row.bearish_count,
+            neutral_count: row.neutral_count,
+        }
+    }
+}
+
+impl From<FeatureSetRow> for FeatureSet {
+    fn from(row: FeatureSetRow) -> Self {
+        Self {
+            symbol: row.symbol,
+            timestamp: row.timestamp,
+            features: serde_json::from_str(&row.features).unwrap_or_default(),
+            feature_metadata: serde_json::from_str(&row.feature_metadata).unwrap_or_default(),
+            feature_version: row.feature_version,
+        }
+    }
+}
+
+impl From<PredictionResultRow> for PredictionResult {
+    fn from(row: PredictionResultRow) -> Self {
+        Self {
+            prediction_id: row.prediction_id,
+            symbol: row.symbol,
+            timestamp: row.timestamp,
+            predicted_price: rust_decimal::Decimal::from_f64(row.predicted_price).unwrap_or_default(),
+            confidence: row.confidence,
+            horizon_minutes: row.horizon_minutes,
+            strategy_name: row.strategy_name,
+            model_version: row.model_version,
+            explanation: row.explanation.and_then(|s| serde_json::from_str(&s).ok()),
+        }
+    }
+}
+
+impl From<PredictionOutcomeRow> for PredictionOutcome {
+    fn from(row: PredictionOutcomeRow) -> Self {
+        Self {
+            prediction_id: row.prediction_id,
+            actual_price: rust_decimal::Decimal::from_f64(row.actual_price).unwrap_or_default(),
+            accuracy_score: row.accuracy_score,
+            directional_accuracy: row.directional_accuracy,
+            outcome_timestamp: row.outcome_timestamp,
+        }
+    }
+}
+
+impl From<StrategyPerformanceRow> for StrategyPerformance {
+    fn from(row: StrategyPerformanceRow) -> Self {
+        Self {
+            strategy_name: row.strategy_name,
+            symbol: row.symbol,
+            timestamp: row.timestamp,
+            total_predictions: row.total_predictions,
+            accuracy_rate: row.accuracy_rate,
+            avg_confidence: row.avg_confidence,
+            profit_loss: rust_decimal::Decimal::from_f64(row.profit_loss).unwrap_or_default(),
+            sharpe_ratio: row.sharpe_ratio,
+            max_drawdown: row.max_drawdown,
+        }
+    }
+}
+
 #[async_trait]
 impl DatabaseClient for ClickHouseClient {
     async fn insert_market_data(&self, data: &[MarketData]) -> Result<(), DatabaseError> {
@@ -172,16 +325,16 @@ impl DatabaseClient for ClickHouseClient {
         let mut insert = self.client.insert("market_data")?;
         
         for item in data {
-            insert.write(&(
-                &item.symbol,
-                item.timestamp,
-                item.open.to_f64().unwrap_or(0.0),
-                item.high.to_f64().unwrap_or(0.0),
-                item.low.to_f64().unwrap_or(0.0),
-                item.close.to_f64().unwrap_or(0.0),
-                item.volume,
-                item.adjusted_close.to_f64().unwrap_or(0.0),
-            )).await?;
+            insert.write(&MarketDataRow {
+                symbol: item.symbol.clone(),
+                timestamp: item.timestamp,
+                open: item.open.to_f64().unwrap_or(0.0),
+                high: item.high.to_f64().unwrap_or(0.0),
+                low: item.low.to_f64().unwrap_or(0.0),
+                close: item.close.to_f64().unwrap_or(0.0),
+                volume: item.volume,
+                adjusted_close: item.adjusted_close.to_f64().unwrap_or(0.0),
+            }).await?;
         }
         
         insert.end().await?;
@@ -239,19 +392,19 @@ impl DatabaseClient for ClickHouseClient {
         
         for item in data {
             let entities_json = serde_json::to_string(&item.entities)?;
-            insert.write(&(
-                &item.article_id,
-                &item.symbol,
-                item.timestamp,
-                &item.title,
-                &item.content,
-                &item.source,
-                item.sentiment_score,
-                item.confidence,
-                entities_json,
-                item.relevance_score,
-                item.market_impact,
-            )).await?;
+            insert.write(&SentimentDataRow {
+                article_id: item.article_id.clone(),
+                symbol: item.symbol.clone(),
+                timestamp: item.timestamp,
+                title: item.title.clone(),
+                content: item.content.clone(),
+                source: item.source.clone(),
+                sentiment_score: item.sentiment_score,
+                confidence: item.confidence,
+                entities: entities_json,
+                relevance_score: item.relevance_score,
+                market_impact: item.market_impact,
+            }).await?;
         }
         
         insert.end().await?;
@@ -272,34 +425,15 @@ impl DatabaseClient for ClickHouseClient {
             ORDER BY timestamp DESC
         "#;
 
-        let rows: Vec<(String, String, DateTime<Utc>, String, String, String, f32, f32, String, f32, Option<f32>)> = 
-            self.client
-                .query(query)
-                .bind(symbol)
-                .bind(start)
-                .bind(end)
-                .fetch_all()
-                .await?;
+        let rows: Vec<SentimentDataRow> = self.client
+            .query(query)
+            .bind(symbol)
+            .bind(start)
+            .bind(end)
+            .fetch_all()
+            .await?;
 
-        let mut results = Vec::new();
-        for row in rows {
-            let entities = serde_json::from_str(&row.8).unwrap_or_default();
-            results.push(SentimentData {
-                article_id: row.0,
-                symbol: row.1,
-                timestamp: row.2,
-                title: row.3,
-                content: row.4,
-                source: row.5,
-                sentiment_score: row.6,
-                confidence: row.7,
-                entities,
-                relevance_score: row.9,
-                market_impact: row.10,
-            });
-        }
-
-        Ok(results)
+        Ok(rows.into_iter().map(SentimentData::from).collect())
     }
 
     async fn get_aggregated_sentiment(
@@ -322,7 +456,7 @@ impl DatabaseClient for ClickHouseClient {
             GROUP BY symbol
         "#;
 
-        let rows: Vec<(String, DateTime<Utc>, f32, f32, u32, u32, u32, u32)> = self.client
+        let rows: Vec<AggregatedSentimentRow> = self.client
             .query(query)
             .bind(timestamp)
             .bind(symbol)
@@ -331,16 +465,7 @@ impl DatabaseClient for ClickHouseClient {
             .fetch_all()
             .await?;
 
-        Ok(rows.into_iter().next().map(|row| AggregatedSentiment {
-            symbol: row.0,
-            timestamp: row.1,
-            overall_sentiment: row.2,
-            confidence_weighted_sentiment: row.3,
-            article_count: row.4,
-            bullish_count: row.5,
-            bearish_count: row.6,
-            neutral_count: row.7,
-        }))
+        Ok(rows.into_iter().next().map(AggregatedSentiment::from))
     }
 
     async fn insert_features(&self, features: &[FeatureSet]) -> Result<(), DatabaseError> {
@@ -354,13 +479,13 @@ impl DatabaseClient for ClickHouseClient {
             let features_json = serde_json::to_string(&item.features)?;
             let metadata_json = serde_json::to_string(&item.feature_metadata)?;
             
-            insert.write(&(
-                &item.symbol,
-                item.timestamp,
-                features_json,
-                metadata_json,
-                item.feature_version,
-            )).await?;
+            insert.write(&FeatureSetRow {
+                symbol: item.symbol.clone(),
+                timestamp: item.timestamp,
+                features: features_json,
+                feature_metadata: metadata_json,
+                feature_version: item.feature_version,
+            }).await?;
         }
         
         insert.end().await?;
@@ -379,24 +504,14 @@ impl DatabaseClient for ClickHouseClient {
             LIMIT 1
         "#;
 
-        let rows: Vec<(String, DateTime<Utc>, String, String, u16)> = self.client
+        let rows: Vec<FeatureSetRow> = self.client
             .query(query)
             .bind(symbol)
             .bind(timestamp)
             .fetch_all()
             .await?;
 
-        if let Some(row) = rows.into_iter().next() {
-            Ok(Some(FeatureSet {
-                symbol: row.0,
-                timestamp: row.1,
-                features: serde_json::from_str(&row.2)?,
-                feature_metadata: serde_json::from_str(&row.3)?,
-                feature_version: row.4,
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(rows.into_iter().next().map(FeatureSet::from))
     }
 
     async fn get_latest_features(&self, symbol: &str) -> Result<Option<FeatureSet>, DatabaseError> {
@@ -408,23 +523,13 @@ impl DatabaseClient for ClickHouseClient {
             LIMIT 1
         "#;
 
-        let rows: Vec<(String, DateTime<Utc>, String, String, u16)> = self.client
+        let rows: Vec<FeatureSetRow> = self.client
             .query(query)
             .bind(symbol)
             .fetch_all()
             .await?;
 
-        if let Some(row) = rows.into_iter().next() {
-            Ok(Some(FeatureSet {
-                symbol: row.0,
-                timestamp: row.1,
-                features: serde_json::from_str(&row.2)?,
-                feature_metadata: serde_json::from_str(&row.3)?,
-                feature_version: row.4,
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(rows.into_iter().next().map(FeatureSet::from))
     }
 
     async fn insert_technical_indicators(&self, indicators: &[TechnicalIndicators]) -> Result<(), DatabaseError> {
@@ -435,19 +540,19 @@ impl DatabaseClient for ClickHouseClient {
         let mut insert = self.client.insert("technical_indicators")?;
         
         for item in indicators {
-            insert.write(&(
-                &item.symbol,
-                item.timestamp,
-                item.sma_20,
-                item.ema_12,
-                item.ema_26,
-                item.macd,
-                item.macd_signal,
-                item.rsi,
-                item.bollinger_upper,
-                item.bollinger_lower,
-                item.volume_sma_20,
-            )).await?;
+            insert.write(&TechnicalIndicatorsRow {
+                symbol: item.symbol.clone(),
+                timestamp: item.timestamp,
+                sma_20: item.sma_20.unwrap_or(0.0),
+                ema_12: item.ema_12.unwrap_or(0.0),
+                ema_26: item.ema_26.unwrap_or(0.0),
+                macd: item.macd.unwrap_or(0.0),
+                macd_signal: item.macd_signal.unwrap_or(0.0),
+                rsi: item.rsi.unwrap_or(0.0),
+                bollinger_upper: item.bollinger_upper.unwrap_or(0.0),
+                bollinger_lower: item.bollinger_lower.unwrap_or(0.0),
+                volume_sma_20: item.volume_sma_20.unwrap_or(0.0),
+            }).await?;
         }
         
         insert.end().await?;
@@ -468,17 +573,17 @@ impl DatabaseClient for ClickHouseClient {
                 None
             };
             
-            insert.write(&(
-                &item.prediction_id,
-                &item.symbol,
-                item.timestamp,
-                item.predicted_price.to_f64().unwrap_or(0.0),
-                item.confidence,
-                item.horizon_minutes,
-                &item.strategy_name,
-                &item.model_version,
-                explanation_json,
-            )).await?;
+            insert.write(&PredictionResultRow {
+                prediction_id: item.prediction_id.clone(),
+                symbol: item.symbol.clone(),
+                timestamp: item.timestamp,
+                predicted_price: item.predicted_price.to_f64().unwrap_or(0.0),
+                confidence: item.confidence,
+                horizon_minutes: item.horizon_minutes,
+                strategy_name: item.strategy_name.clone(),
+                model_version: item.model_version.clone(),
+                explanation: explanation_json,
+            }).await?;
         }
         
         insert.end().await?;
@@ -499,37 +604,15 @@ impl DatabaseClient for ClickHouseClient {
             ORDER BY timestamp DESC
         "#;
 
-        let rows: Vec<(String, String, DateTime<Utc>, f64, f32, u16, String, String, Option<String>)> = 
-            self.client
-                .query(query)
-                .bind(symbol)
-                .bind(start)
-                .bind(end)
-                .fetch_all()
-                .await?;
+        let rows: Vec<PredictionResultRow> = self.client
+            .query(query)
+            .bind(symbol)
+            .bind(start)
+            .bind(end)
+            .fetch_all()
+            .await?;
 
-        let mut results = Vec::new();
-        for row in rows {
-            let explanation = if let Some(explanation_str) = row.8 {
-                serde_json::from_str(&explanation_str).ok()
-            } else {
-                None
-            };
-            
-            results.push(PredictionResult {
-                prediction_id: row.0,
-                symbol: row.1,
-                timestamp: row.2,
-                predicted_price: rust_decimal::Decimal::from_f64(row.3).unwrap_or_default(),
-                confidence: row.4,
-                horizon_minutes: row.5,
-                strategy_name: row.6,
-                model_version: row.7,
-                explanation,
-            });
-        }
-
-        Ok(results)
+        Ok(rows.into_iter().map(PredictionResult::from).collect())
     }
 
     async fn insert_prediction_outcomes(&self, outcomes: &[PredictionOutcome]) -> Result<(), DatabaseError> {
@@ -540,13 +623,13 @@ impl DatabaseClient for ClickHouseClient {
         let mut insert = self.client.insert("prediction_outcomes")?;
         
         for item in outcomes {
-            insert.write(&(
-                &item.prediction_id,
-                item.actual_price.to_f64().unwrap_or(0.0),
-                item.accuracy_score,
-                item.directional_accuracy,
-                item.outcome_timestamp,
-            )).await?;
+            insert.write(&PredictionOutcomeRow {
+                prediction_id: item.prediction_id.clone(),
+                actual_price: item.actual_price.to_f64().unwrap_or(0.0),
+                accuracy_score: item.accuracy_score,
+                directional_accuracy: item.directional_accuracy,
+                outcome_timestamp: item.outcome_timestamp,
+            }).await?;
         }
         
         insert.end().await?;
@@ -561,17 +644,17 @@ impl DatabaseClient for ClickHouseClient {
         let mut insert = self.client.insert("strategy_performance")?;
         
         for item in performance {
-            insert.write(&(
-                &item.strategy_name,
-                &item.symbol,
-                item.timestamp,
-                item.total_predictions,
-                item.accuracy_rate,
-                item.avg_confidence,
-                item.profit_loss.to_f64().unwrap_or(0.0),
-                item.sharpe_ratio,
-                item.max_drawdown,
-            )).await?;
+            insert.write(&StrategyPerformanceRow {
+                strategy_name: item.strategy_name.clone(),
+                symbol: item.symbol.clone(),
+                timestamp: item.timestamp,
+                total_predictions: item.total_predictions,
+                accuracy_rate: item.accuracy_rate,
+                avg_confidence: item.avg_confidence,
+                profit_loss: item.profit_loss.to_f64().unwrap_or(0.0),
+                sharpe_ratio: item.sharpe_ratio,
+                max_drawdown: item.max_drawdown,
+            }).await?;
         }
         
         insert.end().await?;
@@ -585,52 +668,36 @@ impl DatabaseClient for ClickHouseClient {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<StrategyPerformance>, DatabaseError> {
-        let (query, params): (String, Vec<&dyn clickhouse::bind::Bind>) = if let Some(symbol) = symbol {
-            (
-                r#"
-                SELECT strategy_name, symbol, timestamp, total_predictions, accuracy_rate,
-                       avg_confidence, profit_loss, sharpe_ratio, max_drawdown
-                FROM strategy_performance
-                WHERE strategy_name = ? AND symbol = ? AND timestamp >= ? AND timestamp <= ?
-                ORDER BY timestamp DESC
-                "#.to_string(),
-                vec![&strategy_name, &symbol, &start, &end]
-            )
+        let query = if let Some(_symbol) = symbol {
+            r#"
+            SELECT strategy_name, symbol, timestamp, total_predictions, accuracy_rate,
+                   avg_confidence, profit_loss, sharpe_ratio, max_drawdown
+            FROM strategy_performance
+            WHERE strategy_name = ? AND symbol = ? AND timestamp >= ? AND timestamp <= ?
+            ORDER BY timestamp DESC
+            "#.to_string()
         } else {
-            (
-                r#"
-                SELECT strategy_name, symbol, timestamp, total_predictions, accuracy_rate,
-                       avg_confidence, profit_loss, sharpe_ratio, max_drawdown
-                FROM strategy_performance
-                WHERE strategy_name = ? AND timestamp >= ? AND timestamp <= ?
-                ORDER BY timestamp DESC
-                "#.to_string(),
-                vec![&strategy_name, &start, &end]
-            )
+            r#"
+            SELECT strategy_name, symbol, timestamp, total_predictions, accuracy_rate,
+                   avg_confidence, profit_loss, sharpe_ratio, max_drawdown
+            FROM strategy_performance
+            WHERE strategy_name = ? AND timestamp >= ? AND timestamp <= ?
+            ORDER BY timestamp DESC
+            "#.to_string()
         };
 
         let mut query_builder = self.client.query(&query);
-        for param in params {
-            query_builder = query_builder.bind(param);
+        query_builder = query_builder.bind(strategy_name);
+        if let Some(symbol) = symbol {
+            query_builder = query_builder.bind(symbol);
         }
+        query_builder = query_builder.bind(start).bind(end);
 
-        let rows: Vec<(String, String, DateTime<Utc>, u32, f32, f32, f64, f32, f32)> = query_builder
+        let rows: Vec<StrategyPerformanceRow> = query_builder
             .fetch_all()
             .await?;
 
-        let results = rows.into_iter().map(|row| StrategyPerformance {
-            strategy_name: row.0,
-            symbol: row.1,
-            timestamp: row.2,
-            total_predictions: row.3,
-            accuracy_rate: row.4,
-            avg_confidence: row.5,
-            profit_loss: rust_decimal::Decimal::from_f64(row.6).unwrap_or_default(),
-            sharpe_ratio: row.7,
-            max_drawdown: row.8,
-        }).collect();
-
-        Ok(results)
+        Ok(rows.into_iter().map(StrategyPerformance::from).collect())
     }
 
     async fn health_check(&self) -> Result<HealthStatus, DatabaseError> {

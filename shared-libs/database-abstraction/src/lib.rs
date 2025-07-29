@@ -10,14 +10,12 @@ pub use errors::*;
 pub use config::*;
 pub use health::*;
 
-use async_trait::async_trait;
 use std::sync::Arc;
 
 /// Database manager that provides unified access to both ClickHouse and Redis
 pub struct DatabaseManager {
     clickhouse: Arc<clickhouse::ClickHouseClient>,
     redis: Arc<redis::RedisClient>,
-    config: DatabaseConfig,
 }
 
 impl DatabaseManager {
@@ -32,8 +30,7 @@ impl DatabaseManager {
 
         Ok(Self {
             clickhouse,
-            redis, 
-            config,
+            redis,
         })
     }
 

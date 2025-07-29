@@ -68,14 +68,14 @@ pub trait DatabaseClient: Send + Sync {
 #[async_trait]
 pub trait CacheClient: Send + Sync {
     // Cache Operations
-    async fn cache_set<T: Serialize + Send>(
+    async fn cache_set<T: Serialize + Send + Sync>(
         &self, 
         key: &str, 
         value: &T, 
         ttl: Option<Duration>
     ) -> Result<(), DatabaseError>;
     
-    async fn cache_get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>, DatabaseError>;
+    async fn cache_get<T: DeserializeOwned + Send + Sync>(&self, key: &str) -> Result<Option<T>, DatabaseError>;
     async fn cache_delete(&self, key: &str) -> Result<(), DatabaseError>;
     async fn cache_exists(&self, key: &str) -> Result<bool, DatabaseError>;
     async fn cache_expire(&self, key: &str, ttl: Duration) -> Result<(), DatabaseError>;

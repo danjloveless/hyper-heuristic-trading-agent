@@ -27,4 +27,4 @@ AS SELECT
     maxState(profit_loss) as max_profit,
     minState(max_drawdown) as min_drawdown
 FROM strategy_performance
-GROUP BY strategy_name, toStartOfMonth(timestamp);
+GROUP BY strategy_name, timestamp;
