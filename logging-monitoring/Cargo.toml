@@ -1,0 +1,55 @@
+[package]
+name = "logging-monitoring"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace dependencies
+shared-types = { path = "../shared-libs/shared-types" }
+configuration-management = { path = "../configuration-management" }
+
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+async-trait = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+
+# Time handling
+chrono = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging and tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = "0.2"
+tracing-opentelemetry = "0.20"
+
+# AWS SDK for CloudWatch
+aws-config = "1.0"
+aws-sdk-cloudwatch = "1.0"
+aws-sdk-cloudwatchlogs = "1.0"
+aws-sdk-sns = "1.0"
+
+# Metrics and monitoring
+prometheus = "0.13"
+prometheus-client = "0.22"
+metrics = "0.21"
+metrics-exporter-prometheus = "0.12"
+
+# HTTP client for metrics
+reqwest = { version = "0.11", features = ["json"] }
+
+# Utilities
+dashmap = "5.4"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+futures = "0.3"
+
+[dev-dependencies]
+tokio-test = "0.4" 
