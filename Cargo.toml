@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "shared-libs/database-abstraction",
-    "shared-libs/shared-types"
+    "shared-libs/shared-types",
+    "configuration-management"
 ]
 resolver = "2"
 
