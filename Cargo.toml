@@ -3,7 +3,8 @@ members = [
     "shared-libs/database-abstraction",
     "shared-libs/shared-types",
     "configuration-management",
-    "logging-monitoring"
+    "logging-monitoring",
+    "error-handling"
 ]
 resolver = "2"
 
