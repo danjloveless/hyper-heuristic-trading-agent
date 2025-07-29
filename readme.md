@@ -91,7 +91,7 @@ graph TB
     end
     
     %% ML/AI Layer
-    subgraph ML ["🤖 ML/AI Layer"]
+    subgraph MLAI ["🤖 ML/AI Layer"]
         HHS["Strategy<br/>Selection"]
         TRE["TensorRT<br/>Inference"]
         EAI["Explainable<br/>AI"]
@@ -105,7 +105,7 @@ graph TB
     end
     
     %% API & Infrastructure
-    subgraph API ["🔌 API Layer"]
+    subgraph APILAY ["🔌 API Layer"]
         AGW["API Gateway"]
         WSS["WebSocket<br/>Service"]
     end
@@ -158,31 +158,31 @@ graph TB
     
     %% Infrastructure connections
     AUTH -.-> AGW
-    MON -.-> API
+    MON -.-> APILAY
     MON -.-> BIZ
-    MON -.-> ML
+    MON -.-> MLAI
     CONFIG -.-> INGEST
     CONFIG -.-> FEATURES
-    CONFIG -.-> ML
+    CONFIG -.-> MLAI
     
     %% Styling
     classDef external fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     classDef ingestion fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef features fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
-    classDef ml fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef mlstyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef business fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    classDef api fill:#e0f2f1,stroke:#00796b,stroke-width:2px
+    classDef apistyle fill:#e0f2f1,stroke:#00796b,stroke-width:2px
     classDef storage fill:#f5f5f5,stroke:#616161,stroke-width:2px
     classDef infra fill:#ede7f6,stroke:#512da8,stroke-width:2px
     
-    class EXT external
-    class INGEST ingestion  
-    class FEATURES features
-    class ML ml
-    class BIZ business
-    class API api
-    class STORAGE storage
-    class INFRA infra
+    class AV,AI external
+    class MDI,NDI,DVQ ingestion  
+    class TIE,SAE,MRD,FSR features
+    class HHS,TRE,EAI mlstyle
+    class PS,RM,PE business
+    class AGW,WSS apistyle
+    class CH,RD,S3 storage
+    class AUTH,MON,CONFIG infra
 ```
 
 ### **Core Data Flow Pipeline**
@@ -238,19 +238,19 @@ flowchart LR
     SO ==> HHS
     
     %% Styling for different stages
-    classDef source fill:#e3f2fd,stroke:#1565c0,stroke-width:3px,color:#000
-    classDef ingestion fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
-    classDef processing fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,color:#000
-    classDef ml fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000
-    classDef business fill:#fce4ec,stroke:#ad1457,stroke-width:2px,color:#000
-    classDef feedback fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
+    classDef sourceStyle fill:#e3f2fd,stroke:#1565c0,stroke-width:3px,color:#000
+    classDef ingestStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef processStyle fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,color:#000
+    classDef mlStyle fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000
+    classDef bizStyle fill:#fce4ec,stroke:#ad1457,stroke-width:2px,color:#000
+    classDef feedbackStyle fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
     
-    class AV,AI source
-    class MDI,NDI ingestion
-    class TIE,SAE,FSR,MRD processing
-    class HHS,TRT,EAI ml
-    class PS,RM business
-    class PE,SO feedback
+    class AV,AI sourceStyle
+    class MDI,NDI ingestStyle
+    class TIE,SAE,FSR,MRD processStyle
+    class HHS,TRT,EAI mlStyle
+    class PS,RM bizStyle
+    class PE,SO feedbackStyle
 ```
 
 ## Module Specifications
