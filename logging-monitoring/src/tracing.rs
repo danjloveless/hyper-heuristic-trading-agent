@@ -255,7 +255,7 @@ impl TraceManager {
     async fn process_span_message(
         message: SpanMessage,
         active_spans: &Arc<DashMap<TraceId, Vec<ActiveSpan>>>,
-        pending_spans: &mut Vec<TraceSpan>,
+        _pending_spans: &mut Vec<TraceSpan>,
     ) {
         match message {
             SpanMessage::StartSpan(trace_id, operation) => {

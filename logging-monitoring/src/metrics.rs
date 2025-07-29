@@ -184,7 +184,7 @@ impl MetricsManager {
     /// Aggregate metrics
     async fn aggregate_metrics(
         aggregated_metrics: &Arc<DashMap<String, AggregatedMetric>>,
-        config: &MetricsConfig,
+        _config: &MetricsConfig,
     ) {
         // This would perform additional aggregation logic
         // For now, we'll just log that aggregation is happening
@@ -303,7 +303,7 @@ impl MetricsManager {
 
                 // Register the metric if it's new
                 if !self.prometheus_counters.contains_key(&metric_key) {
-                    if let Some(registry) = &self.prometheus_registry {
+                    if let Some(_registry) = &self.prometheus_registry {
                         // Note: This is a limitation - we can't register in async context here
                         // In a real implementation, you'd want to handle this differently
                     }
@@ -320,7 +320,7 @@ impl MetricsManager {
 
                 // Register the metric if it's new
                 if !self.prometheus_gauges.contains_key(&metric_key) {
-                    if let Some(registry) = &self.prometheus_registry {
+                    if let Some(_registry) = &self.prometheus_registry {
                         // Note: This is a limitation - we can't register in async context here
                         // In a real implementation, you'd want to handle this differently
                     }
@@ -343,7 +343,7 @@ impl MetricsManager {
 
                 // Register the metric if it's new
                 if !self.prometheus_histograms.contains_key(&metric_key) {
-                    if let Some(registry) = &self.prometheus_registry {
+                    if let Some(_registry) = &self.prometheus_registry {
                         // Note: This is a limitation - we can't register in async context here
                         // In a real implementation, you'd want to handle this differently
                     }
