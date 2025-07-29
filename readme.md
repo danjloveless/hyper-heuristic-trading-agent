@@ -176,7 +176,7 @@ graph TB
     classDef infra fill:#ede7f6,stroke:#512da8,stroke-width:2px
     
     class AV,AI external
-    class MDI,NDI,DVQ ingestion  
+    class MDI,NDI,DVQ ingestion
     class TIE,SAE,MRD,FSR features
     class HHS,TRE,EAI mlstyle
     class PS,RM,PE business
