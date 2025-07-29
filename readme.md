@@ -65,128 +65,192 @@ The platform processes real-time and batch financial data from **Alpha Vantage**
 
 ## System Architecture
 
-### **High-Level Modular Architecture**
+### **High-Level System Architecture**
 
 ```mermaid
 graph TB
-    subgraph "Data Ingestion Layer"
-        MDI[Market Data Ingestion]
-        NDI[News Data Ingestion]  
-        DVQ[Data Validation & Quality]
-        RSP[Real-time Stream Processor]
+    %% External Data Sources
+    subgraph EXT ["🌐 External Data Sources"]
+        AV["📈 Alpha Vantage<br/>Market Data"]
+        AI["📰 Alpha Intelligence<br/>News & Sentiment"]
     end
     
-    subgraph "Feature Engineering Layer"
-        TIE[Technical Indicators Engine]
-        SAE[Sentiment Analysis Engine]
-        MRD[Market Regime Detection]
-        FSR[Feature Storage & Retrieval]
+    %% Data Ingestion Layer
+    subgraph INGEST ["📥 Data Ingestion Layer"]
+        MDI["Market Data<br/>Ingestion"]
+        NDI["News Data<br/>Ingestion"]
+        DVQ["Data Validation<br/>& Quality"]
     end
     
-    subgraph "ML/AI Layer"
-        HHS[Hyper Heuristic Strategy Selection]
-        TRE[TensorRT Inference Engine]
-        EAI[Explainable AI Service]
-        MTP[Model Training Pipeline]
+    %% Feature Engineering Layer  
+    subgraph FEATURES ["⚙️ Feature Engineering Layer"]
+        TIE["Technical<br/>Indicators"]
+        SAE["Sentiment<br/>Analysis"]
+        MRD["Market Regime<br/>Detection"]
+        FSR["Feature Storage<br/>& Retrieval"]
     end
     
-    subgraph "Business Logic Layer"
-        PS[Prediction Service]
-        RM[Risk Management]
-        PE[Performance Evaluation]
-        SO[Strategy Optimization]
+    %% ML/AI Layer
+    subgraph ML ["🤖 ML/AI Layer"]
+        HHS["Strategy<br/>Selection"]
+        TRE["TensorRT<br/>Inference"]
+        EAI["Explainable<br/>AI"]
     end
     
-    subgraph "API Layer"
-        AGW[API Gateway]
-        WSS[WebSocket Service]
-        AUTH[Authentication & Authorization]
-        RL[Rate Limiting]
+    %% Business Logic Layer
+    subgraph BIZ ["💼 Business Logic Layer"]
+        PS["Prediction<br/>Service"]
+        RM["Risk<br/>Management"]
+        PE["Performance<br/>Evaluation"]
     end
     
-    subgraph "Monitoring & Operations"
-        PM[Performance Monitoring]
-        HC[Health Checks]
-        MC[Metrics Collection]
-        AL[Alerting]
+    %% API & Infrastructure
+    subgraph API ["🔌 API Layer"]
+        AGW["API Gateway"]
+        WSS["WebSocket<br/>Service"]
     end
     
-    subgraph "Core Infrastructure"
-        DAL[Database Abstraction Layer]
-        CM[Configuration Management]
-        EH[Error Handling]
-        LM[Logging & Monitoring]
+    subgraph INFRA ["🏗️ Infrastructure"]
+        AUTH["Authentication"]
+        MON["Monitoring"]
+        CONFIG["Configuration"]
     end
-    
-    subgraph "Storage Layer"
-        CH[(ClickHouse)]
-        RD[(Redis Cache)]
-        S3[(S3 Storage)]
-    end
-    
-    %% Data Flow Connections
-    MDI --> DVQ --> FSR
-    NDI --> DVQ
-    DVQ --> TIE --> FSR
-    DVQ --> SAE --> FSR  
-    FSR --> MRD --> HHS
-    FSR --> TRE
-    HHS --> TRE --> PS
-    TRE --> EAI --> PS
-    PS --> RM --> PE
-    PE --> SO --> HHS
-    
-    %% API Layer
-    AGW --> PS
-    AUTH --> AGW
-    RL --> AGW
-    
-    %% Monitoring
-    PM --> MC --> AL
-    HC --> AL
     
     %% Storage
-    DAL --> CH
-    DAL --> RD
-    EAI --> S3
+    subgraph STORAGE ["💾 Storage Layer"]
+        CH[("ClickHouse<br/>Time Series")]
+        RD[("Redis<br/>Cache")]
+        S3[("S3<br/>Storage")]
+    end
     
-    %% Infrastructure
-    CM -.-> ALL[All Modules]
-    EH -.-> ALL
-    LM -.-> ALL
+    %% Data Flow
+    AV --> MDI
+    AI --> NDI
+    
+    MDI --> DVQ
+    NDI --> DVQ
+    
+    DVQ --> TIE
+    DVQ --> SAE
+    TIE --> FSR
+    SAE --> FSR
+    FSR --> MRD
+    
+    MRD --> HHS
+    FSR --> TRE
+    HHS --> TRE
+    
+    TRE --> EAI
+    TRE --> PS
+    EAI --> PS
+    
+    PS --> RM
+    RM --> PE
+    PE --> HHS
+    
+    PS --> AGW
+    AGW --> WSS
+    
+    %% Storage connections
+    FSR -.-> RD
+    PS -.-> CH
+    EAI -.-> S3
+    
+    %% Infrastructure connections
+    AUTH -.-> AGW
+    MON -.-> API
+    MON -.-> BIZ
+    MON -.-> ML
+    CONFIG -.-> INGEST
+    CONFIG -.-> FEATURES
+    CONFIG -.-> ML
+    
+    %% Styling
+    classDef external fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef ingestion fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef features fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef ml fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef business fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef api fill:#e0f2f1,stroke:#00796b,stroke-width:2px
+    classDef storage fill:#f5f5f5,stroke:#616161,stroke-width:2px
+    classDef infra fill:#ede7f6,stroke:#512da8,stroke-width:2px
+    
+    class EXT external
+    class INGEST ingestion  
+    class FEATURES features
+    class ML ml
+    class BIZ business
+    class API api
+    class STORAGE storage
+    class INFRA infra
 ```
 
 ### **Core Data Flow Pipeline**
 
 ```mermaid
 flowchart LR
-    AV[Alpha Vantage API] --> MDI[Market Data Ingestion]
-    AI[Alpha Intelligence API] --> NDI[News Data Ingestion]
+    %% Data Sources
+    AV["📊 Alpha Vantage<br/>Market Data API"]
+    AI["📰 Alpha Intelligence<br/>News Data API"]
     
-    MDI --> TIE[Technical Indicators]
-    NDI --> SAE[Sentiment Analysis]
+    %% Processing Pipeline
+    MDI["📥 Market Data<br/>Ingestion"]
+    NDI["📥 News Data<br/>Ingestion"]
     
-    TIE --> FSR[Feature Storage]
-    SAE --> FSR
-    FSR --> MRD[Market Regime Detection]
+    TIE["📈 Technical<br/>Indicators"]
+    SAE["💭 Sentiment<br/>Analysis"]
     
-    MRD --> HHS[Strategy Selection]
-    FSR --> TRT[TensorRT Inference]
-    HHS --> TRT
+    FSR["🗃️ Feature<br/>Storage"]
+    MRD["🎯 Market Regime<br/>Detection"]
     
-    TRT --> EAI[Explainable AI]
-    TRT --> PS[Prediction Service]
-    EAI --> PS
+    HHS["🧠 Strategy<br/>Selection"]
+    TRT["⚡ TensorRT<br/>Inference"]
     
-    PS --> RM[Risk Management]
-    RM --> PE[Performance Evaluation]
-    PE --> SO[Strategy Optimization]
-    SO --> HHS
+    EAI["🔍 Explainable<br/>AI"]
+    PS["🎲 Prediction<br/>Service"]
     
-    style AV fill:#e1f5fe
-    style AI fill:#e1f5fe
-    style TRT fill:#f3e5f5
-    style PS fill:#e8f5e8
+    RM["⚠️ Risk<br/>Management"]
+    PE["📊 Performance<br/>Evaluation"]
+    SO["🔄 Strategy<br/>Optimization"]
+    
+    %% Data Flow
+    AV ==> MDI
+    AI ==> NDI
+    
+    MDI ==> TIE
+    NDI ==> SAE
+    
+    TIE ==> FSR
+    SAE ==> FSR
+    FSR ==> MRD
+    
+    MRD ==> HHS
+    FSR ==> TRT
+    HHS ==> TRT
+    
+    TRT ==> EAI
+    TRT ==> PS
+    EAI ==> PS
+    
+    PS ==> RM
+    RM ==> PE
+    PE ==> SO
+    SO ==> HHS
+    
+    %% Styling for different stages
+    classDef source fill:#e3f2fd,stroke:#1565c0,stroke-width:3px,color:#000
+    classDef ingestion fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef processing fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,color:#000
+    classDef ml fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000
+    classDef business fill:#fce4ec,stroke:#ad1457,stroke-width:2px,color:#000
+    classDef feedback fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
+    
+    class AV,AI source
+    class MDI,NDI ingestion
+    class TIE,SAE,FSR,MRD processing
+    class HHS,TRT,EAI ml
+    class PS,RM business
+    class PE,SO feedback
 ```
 
 ## Module Specifications
