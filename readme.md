@@ -92,9 +92,9 @@ graph TB
     
     %% ML/AI Layer
     subgraph MLAI ["🤖 ML/AI Layer"]
-        HHS["Strategy<br/>Selection"]
-        TRE["TensorRT<br/>Inference"]
-        EAI["Explainable<br/>AI"]
+        HHS["Hyper Heuristic<br/>Strategy Selection"]
+        TRE["TensorRT<br/>Inference Engine"]
+        EAI["Explainable<br/>AI Service"]
     end
     
     %% Business Logic Layer
@@ -111,19 +111,19 @@ graph TB
     end
     
     subgraph INFRA ["🏗️ Infrastructure"]
-        AUTH["Authentication"]
-        MON["Monitoring"]
-        CONFIG["Configuration"]
+        AUTH["Authentication<br/>& Authorization"]
+        MON["Monitoring<br/>& Alerting"]
+        CONFIG["Configuration<br/>Management"]
     end
     
     %% Storage
     subgraph STORAGE ["💾 Storage Layer"]
-        CH[("ClickHouse<br/>Time Series")]
+        CH[("ClickHouse<br/>Time Series DB")]
         RD[("Redis<br/>Cache")]
-        S3[("S3<br/>Storage")]
+        S3[("S3<br/>Object Storage")]
     end
     
-    %% Data Flow
+    %% Data Flow - Primary Pipeline
     AV --> MDI
     AI --> NDI
     
@@ -151,12 +151,12 @@ graph TB
     PS --> AGW
     AGW --> WSS
     
-    %% Storage connections
+    %% Storage connections - Dotted lines
     FSR -.-> RD
     PS -.-> CH
     EAI -.-> S3
     
-    %% Infrastructure connections
+    %% Infrastructure connections - Dotted lines
     AUTH -.-> AGW
     MON -.-> APILAY
     MON -.-> BIZ
@@ -165,16 +165,17 @@ graph TB
     CONFIG -.-> FEATURES
     CONFIG -.-> MLAI
     
-    %% Styling
-    classDef external fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    classDef ingestion fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef features fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
-    classDef mlstyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    classDef business fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    classDef apistyle fill:#e0f2f1,stroke:#00796b,stroke-width:2px
-    classDef storage fill:#f5f5f5,stroke:#616161,stroke-width:2px
-    classDef infra fill:#ede7f6,stroke:#512da8,stroke-width:2px
+    %% Enhanced Styling with black text
+    classDef external fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000000,font-weight:bold
+    classDef ingestion fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000000,font-weight:500
+    classDef features fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000000,font-weight:500
+    classDef mlstyle fill:#fff3e0,stroke:#f57c00,stroke-width:3px,color:#000000,font-weight:bold
+    classDef business fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000000,font-weight:500
+    classDef apistyle fill:#e0f2f1,stroke:#00796b,stroke-width:2px,color:#000000,font-weight:500
+    classDef storage fill:#f5f5f5,stroke:#616161,stroke-width:2px,color:#000000,font-weight:500
+    classDef infra fill:#ede7f6,stroke:#512da8,stroke-width:2px,color:#000000,font-weight:500
     
+    %% Apply styles
     class AV,AI external
     class MDI,NDI,DVQ ingestion
     class TIE,SAE,MRD,FSR features
