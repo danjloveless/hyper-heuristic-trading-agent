@@ -4,10 +4,10 @@
 //! including latency tracking, throughput monitoring, and performance alerts.
 
 use logging_monitoring::{
-    LoggingMonitoringSystem, LoggingMonitoringConfig, LogContext, LogLevel,
-    SpanResult, SystemEvent, EventType, Alert, Notification, LoggingMonitoring,
+    LoggingMonitoringSystem, LoggingMonitoringConfig, LogContext,
+    SpanResult, SystemEvent, EventType, LoggingMonitoring,
 };
-use logging_monitoring::events::{EventSeverity, NotificationPriority, NotificationChannel};
+use logging_monitoring::events::EventSeverity;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -17,21 +17,21 @@ use rand::Rng;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting Performance Monitoring Example");
     
-    // Create configuration optimized for performance monitoring
+    // Create configuration with 100% sampling for the example
     let mut config = LoggingMonitoringConfig::default();
-    config.logging.level = "INFO".to_string();
-    config.metrics.enabled = true;
-    config.metrics.prometheus.enabled = true;
-    config.events.enabled = true;
+    config.tracing.sampling.rate = 1.0; // 100% sampling for example
+    config.tracing.sampling.adaptive = false;
     
     // Initialize the system
     LoggingMonitoringSystem::initialize(config.clone()).await?;
+    
+    // Create the system instance
     let system = LoggingMonitoringSystem::new(config).await?;
     
-    // Simulate a high-traffic API with performance monitoring
+    // Simulate high-traffic API
     simulate_high_traffic_api(&system).await?;
     
-    // Simulate performance degradation scenarios
+    // Simulate performance degradation
     simulate_performance_degradation(&system).await?;
     
     // Simulate performance recovery
@@ -40,89 +40,116 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate performance report
     generate_performance_report(&system).await?;
     
-    println!("✅ Performance monitoring example completed!");
+    println!("✅ Performance monitoring example completed successfully!");
     
+    // Shutdown
     system.shutdown().await?;
+    
     Ok(())
 }
 
-/// Simulate a high-traffic API with comprehensive performance monitoring
+/// Simulate high-traffic API with performance monitoring
 async fn simulate_high_traffic_api(system: &LoggingMonitoringSystem) -> Result<(), Box<dyn std::error::Error>> {
     println!("📈 Simulating high-traffic API...");
     
     let context = LogContext::new("api_gateway".to_string());
-    system.log_info("Starting high-traffic simulation", context.clone()).await?;
     
-    // Simulate multiple concurrent requests
-    let mut handles = Vec::new();
-    
-    for i in 0..100 {
-        let system_clone = system.clone();
-        let context_clone = context.clone();
+    // Simulate 20 sequential API requests instead of 100 concurrent ones
+    for i in 0..20 {
+        let request_id = format!("req-{}", i);
+        let endpoint = if i % 3 == 0 { "/api/users" } else if i % 3 == 1 { "/api/orders" } else { "/api/products" };
         
-        let handle = tokio::spawn(async move {
-            let request_id = format!("req-{}", i);
-            let endpoint = if i % 3 == 0 { "/api/users" } else if i % 3 == 1 { "/api/orders" } else { "/api/products" };
-            
-            let trace_id = system_clone.start_trace("api_request").await.unwrap();
-            system_clone.add_trace_annotation(trace_id, "request_id", &request_id).await.unwrap();
-            system_clone.add_trace_annotation(trace_id, "endpoint", endpoint).await.unwrap();
-            
-            let start_time = Instant::now();
-            
-            // Simulate different types of processing
-            let processing_span = system_clone.start_span(trace_id, "request_processing").await.unwrap();
-            
-            // Simulate variable processing time
-            let processing_time = rand::thread_rng().gen_range(10..200);
-            sleep(Duration::from_millis(processing_time)).await;
-            
-            system_clone.end_span(processing_span, SpanResult {
-                success: true,
-                error_message: None,
-                duration_ms: processing_time,
-                metadata: HashMap::new(),
-            }).await.unwrap();
-            
-            // Simulate database query
-            let db_span = system_clone.start_span(trace_id, "database_query").await.unwrap();
-            let db_time = rand::thread_rng().gen_range(5..50);
-            sleep(Duration::from_millis(db_time)).await;
-            
-            system_clone.end_span(db_span, SpanResult {
-                success: true,
-                error_message: None,
-                duration_ms: db_time,
-                metadata: HashMap::new(),
-            }).await.unwrap();
-            
-            let total_time = start_time.elapsed();
-            
-            // Record metrics
-            let mut tags = HashMap::new();
-            tags.insert("endpoint".to_string(), endpoint.to_string());
-            tags.insert("method".to_string(), "GET".to_string());
-            tags.insert("status".to_string(), "200".to_string());
-            
-            system_clone.record_counter("http_requests_total", 1, tags.clone()).await.unwrap();
-            system_clone.record_histogram("http_request_duration_ms", total_time.as_millis() as f64, tags.clone()).await.unwrap();
-            system_clone.record_timer("http_request_duration", total_time, tags).await.unwrap();
-            
-            // End the trace
-            system_clone.end_span(trace_id, SpanResult {
-                success: true,
-                error_message: None,
-                duration_ms: total_time.as_millis() as u64,
-                metadata: HashMap::new(),
-            }).await.unwrap();
-        });
+        // Handle trace creation errors gracefully
+        let trace_info = match system.start_trace("api_request").await {
+            Ok(info) => info,
+            Err(e) => {
+                eprintln!("Failed to start trace for request {}: {}", request_id, e);
+                continue;
+            }
+        };
         
-        handles.push(handle);
-    }
-    
-    // Wait for all requests to complete
-    for handle in handles {
-        handle.await.unwrap();
+        // Add trace annotations
+        if let Err(e) = system.add_trace_annotation(trace_info.trace_id, "request_id", &request_id).await {
+            eprintln!("Failed to add request_id annotation: {}", e);
+        }
+        if let Err(e) = system.add_trace_annotation(trace_info.trace_id, "endpoint", endpoint).await {
+            eprintln!("Failed to add endpoint annotation: {}", e);
+        }
+        
+        let start_time = Instant::now();
+        
+        // Simulate different types of processing
+        let processing_span = match system.start_span(trace_info.trace_id, "request_processing").await {
+            Ok(span) => span,
+            Err(e) => {
+                eprintln!("Failed to start processing span: {}", e);
+                continue;
+            }
+        };
+        
+        // Simulate variable processing time
+        let processing_time = rand::thread_rng().gen_range(10..200);
+        sleep(Duration::from_millis(processing_time)).await;
+        
+        if let Err(e) = system.end_span(processing_span, SpanResult {
+            success: true,
+            error_message: None,
+            duration_ms: processing_time,
+            metadata: HashMap::new(),
+        }).await {
+            eprintln!("Failed to end processing span: {}", e);
+        }
+        
+        // Simulate database query
+        let db_span = match system.start_span(trace_info.trace_id, "database_query").await {
+            Ok(span) => span,
+            Err(e) => {
+                eprintln!("Failed to start database span: {}", e);
+                continue;
+            }
+        };
+        let db_time = rand::thread_rng().gen_range(5..50);
+        sleep(Duration::from_millis(db_time)).await;
+        
+        if let Err(e) = system.end_span(db_span, SpanResult {
+            success: true,
+            error_message: None,
+            duration_ms: db_time,
+            metadata: HashMap::new(),
+        }).await {
+            eprintln!("Failed to end database span: {}", e);
+        }
+        
+        let total_time = start_time.elapsed();
+        
+        // Record metrics
+        let mut tags = HashMap::new();
+        tags.insert("endpoint".to_string(), endpoint.to_string());
+        tags.insert("method".to_string(), "GET".to_string());
+        tags.insert("status".to_string(), "200".to_string());
+        
+        if let Err(e) = system.record_counter("http_requests_total", 1, tags.clone()).await {
+            eprintln!("Failed to record counter: {}", e);
+        }
+        if let Err(e) = system.record_histogram("http_request_duration_ms", total_time.as_millis() as f64, tags.clone()).await {
+            eprintln!("Failed to record histogram: {}", e);
+        }
+        if let Err(e) = system.record_timer("http_request_duration", total_time, tags).await {
+            eprintln!("Failed to record timer: {}", e);
+        }
+        
+        // End the trace
+        if let Err(e) = system.end_span(trace_info.root_span_id, SpanResult {
+            success: true,
+            error_message: None,
+            duration_ms: total_time.as_millis() as u64,
+            metadata: HashMap::new(),
+        }).await {
+            eprintln!("Failed to end trace: {}", e);
+        }
+        
+        // Small delay between requests
+        sleep(Duration::from_millis(10)).await;
     }
     
     system.log_info("High-traffic simulation completed", context).await?;
@@ -136,9 +163,9 @@ async fn simulate_performance_degradation(system: &LoggingMonitoringSystem) -> R
     let context = LogContext::new("api_gateway".to_string());
     
     // Simulate slow database queries
-    for i in 0..10 {
-        let trace_id = system.start_trace("slow_query").await?;
-        system.add_trace_annotation(trace_id, "query_type", "complex_join").await?;
+    for _i in 0..10 {
+        let trace_info = system.start_trace("slow_query").await?;
+        system.add_trace_annotation(trace_info.trace_id, "query_type", "complex_join").await?;
         
         let start_time = Instant::now();
         
@@ -155,85 +182,37 @@ async fn simulate_performance_degradation(system: &LoggingMonitoringSystem) -> R
         system.record_histogram("database_query_duration_ms", duration.as_millis() as f64, tags.clone()).await?;
         system.record_counter("slow_queries_total", 1, tags).await?;
         
-        system.end_span(trace_id, SpanResult {
+        system.end_span(trace_info.root_span_id, SpanResult {
             success: true,
             error_message: None,
             duration_ms: duration.as_millis() as u64,
             metadata: HashMap::new(),
         }).await?;
-        
-        // Create performance alert if query is very slow
-        if duration.as_millis() > 3000 {
-            let alert = Alert::new(
-                "Slow Database Query Detected".to_string(),
-                format!("Query took {}ms, exceeding 3 second threshold", duration.as_millis()),
-                EventSeverity::Medium,
-                "database".to_string(),
-                "performance".to_string(),
-            ).with_tag("duration_ms".to_string(), duration.as_millis().to_string())
-             .with_tag("threshold_ms".to_string(), "3000".to_string());
-            
-            system.emit_alert(alert).await?;
-        }
     }
     
-    // Simulate high error rate
-    for i in 0..20 {
-        let trace_id = system.start_trace("error_request").await?;
+    // Simulate error scenarios
+    for _i in 0..5 {
+        let trace_info = system.start_trace("error_scenario").await?;
         
-        // Simulate random errors
-        let is_error = rand::thread_rng().gen_bool(0.3); // 30% error rate
+        let error_span = system.start_span(trace_info.trace_id, "error_processing").await?;
         
-        if is_error {
-            let error_span = system.start_span(trace_id, "error_processing").await?;
-            
-            sleep(Duration::from_millis(100)).await;
-            
-            system.end_span(error_span, SpanResult {
-                success: false,
-                error_message: Some("Internal server error".to_string()),
-                duration_ms: 100,
-                metadata: HashMap::new(),
-            }).await?;
-            
-            // Record error metrics
-            let mut tags = HashMap::new();
-            tags.insert("endpoint".to_string(), "/api/users".to_string());
-            tags.insert("error_type".to_string(), "internal_error".to_string());
-            
-            system.record_counter("http_errors_total", 1, tags).await?;
-        }
+        // Simulate error
+        sleep(Duration::from_millis(rand::thread_rng().gen_range(100..500))).await;
         
-        system.end_span(trace_id, SpanResult {
-            success: !is_error,
-            error_message: if is_error { Some("Request failed".to_string()) } else { None },
-            duration_ms: 100,
+        system.end_span(error_span, SpanResult {
+            success: false,
+            error_message: Some("Database connection timeout".to_string()),
+            duration_ms: 300,
+            metadata: HashMap::new(),
+        }).await?;
+        
+        system.end_span(trace_info.root_span_id, SpanResult {
+            success: false,
+            error_message: Some("Request failed due to database error".to_string()),
+            duration_ms: 300,
             metadata: HashMap::new(),
         }).await?;
     }
-    
-    // Create high error rate alert
-    let alert = Alert::new(
-        "High Error Rate Detected".to_string(),
-        "Error rate has exceeded 25% threshold".to_string(),
-        EventSeverity::High,
-        "api_gateway".to_string(),
-        "reliability".to_string(),
-    ).with_tag("error_rate".to_string(), "30%".to_string())
-     .with_tag("threshold".to_string(), "25%".to_string());
-    
-    system.emit_alert(alert).await?;
-    
-    // Send notification to team
-    let notification = Notification::new(
-        "Performance Alert".to_string(),
-        "High error rate and slow queries detected. Immediate attention required.".to_string(),
-        NotificationPriority::High,
-        NotificationChannel::Slack,
-    ).with_recipient("devops-team".to_string())
-     .with_tag("channel".to_string(), "#alerts".to_string());
-    
-    system.emit_notification(notification).await?;
     
     system.log_warn("Performance degradation simulation completed", context).await?;
     Ok(())
@@ -246,8 +225,8 @@ async fn simulate_performance_recovery(system: &LoggingMonitoringSystem) -> Resu
     let context = LogContext::new("api_gateway".to_string());
     
     // Simulate normal performance after recovery
-    for i in 0..50 {
-        let trace_id = system.start_trace("recovered_request").await?;
+    for _i in 0..50 {
+        let trace_info = system.start_trace("recovered_request").await?;
         
         let start_time = Instant::now();
         
@@ -264,7 +243,7 @@ async fn simulate_performance_recovery(system: &LoggingMonitoringSystem) -> Resu
         system.record_counter("http_requests_total", 1, tags.clone()).await?;
         system.record_histogram("http_request_duration_ms", duration.as_millis() as f64, tags).await?;
         
-        system.end_span(trace_id, SpanResult {
+        system.end_span(trace_info.root_span_id, SpanResult {
             success: true,
             error_message: None,
             duration_ms: duration.as_millis() as u64,

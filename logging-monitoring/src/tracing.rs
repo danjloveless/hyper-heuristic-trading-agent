@@ -8,15 +8,23 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use dashmap::DashMap;
-use std::time::Instant;
+use std::time::{Instant, Duration};
+use fastrand;
 
 /// Trace ID type
 pub type TraceId = Uuid;
 
 /// Span ID type
 pub type SpanId = Uuid;
+
+/// Result of starting a trace, containing both the trace ID and the root span ID
+#[derive(Debug, Clone)]
+pub struct TraceInfo {
+    pub trace_id: TraceId,
+    pub root_span_id: SpanId,
+}
 
 /// Span status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,6 +103,15 @@ impl TraceSpan {
     }
 }
 
+/// Message types for background processing
+#[derive(Debug)]
+enum SpanMessage {
+    StartSpan(TraceId, String),
+    EndSpan(SpanId, crate::SpanResult),
+    AddAnnotation(TraceId, String, String),
+    AddTag(TraceId, String, String),
+}
+
 /// Active span for tracking current operation
 #[derive(Debug, Clone)]
 pub struct ActiveSpan {
@@ -142,8 +159,9 @@ impl ActiveSpan {
 #[derive(Clone)]
 pub struct TraceManager {
     config: TracingConfig,
-    active_spans: DashMap<TraceId, Vec<ActiveSpan>>,
-    completed_spans: DashMap<TraceId, Vec<TraceSpan>>,
+    span_sender: mpsc::Sender<SpanMessage>,
+    active_spans: Arc<DashMap<TraceId, Vec<ActiveSpan>>>,
+    completed_spans: Arc<DashMap<TraceId, Vec<TraceSpan>>>,
     sampling_rate: f64,
     shutdown: Arc<AtomicBool>,
 }
@@ -151,14 +169,23 @@ pub struct TraceManager {
 impl TraceManager {
     /// Create a new trace manager
     pub async fn new(config: TracingConfig) -> Result<Self> {
-        let sampling_rate = config.sampling.rate; // Extract before moving config
+        let (span_sender, span_receiver) = mpsc::channel(10000); // Default channel capacity
+        let active_spans = Arc::new(DashMap::new());
+        let completed_spans = Arc::new(DashMap::new());
+        let sampling_rate = config.sampling.rate; // Use config sampling rate
+        let shutdown = Arc::new(AtomicBool::new(false));
+
         let manager = Self {
-            config,
-            active_spans: DashMap::new(),
-            completed_spans: DashMap::new(),
-            sampling_rate, // Use extracted sampling rate
-            shutdown: Arc::new(AtomicBool::new(false)),
+            config: config.clone(),
+            span_sender,
+            active_spans: active_spans.clone(),
+            completed_spans: completed_spans.clone(),
+            sampling_rate, // Use config sampling rate
+            shutdown: shutdown.clone(),
         };
+
+        // Start background processing
+        manager.start_background_processing(span_receiver, active_spans, completed_spans, shutdown, config).await;
 
         // Initialize X-Ray if enabled
         if manager.config.xray.enabled {
@@ -166,6 +193,112 @@ impl TraceManager {
         }
 
         Ok(manager)
+    }
+
+    /// Start background span processing
+    async fn start_background_processing(
+        &self,
+        mut receiver: mpsc::Receiver<SpanMessage>,
+        active_spans: Arc<DashMap<TraceId, Vec<ActiveSpan>>>,
+        _completed_spans: Arc<DashMap<TraceId, Vec<TraceSpan>>>,
+        shutdown: Arc<AtomicBool>,
+        config: TracingConfig,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut _pending_spans = Vec::new();
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
+            
+            loop {
+                tokio::select! {
+                    result = receiver.recv() => {
+                        match result {
+                            Some(message) => {
+                                Self::process_span_message(message, &active_spans, &mut _pending_spans).await;
+                                
+                                // Flush if we have many pending spans
+                                if _pending_spans.len() >= 100 {
+                                    Self::flush_spans(&mut _pending_spans, &config).await;
+                                }
+                            },
+                            None => {
+                                // Channel closed, flush and exit
+                                if !_pending_spans.is_empty() {
+                                    Self::flush_spans(&mut _pending_spans, &config).await;
+                                }
+                                break;
+                            }
+                        }
+                    },
+                    
+                    _ = interval.tick() => {
+                        if !_pending_spans.is_empty() {
+                            Self::flush_spans(&mut _pending_spans, &config).await;
+                        }
+                    },
+                    
+                    _ = async {
+                        while !shutdown.load(Ordering::Relaxed) {
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
+                    } => {
+                        if !_pending_spans.is_empty() {
+                            Self::flush_spans(&mut _pending_spans, &config).await;
+                        }
+                        break;
+                    }
+                }
+            }
+        })
+    }
+
+    /// Process span message
+    async fn process_span_message(
+        message: SpanMessage,
+        active_spans: &Arc<DashMap<TraceId, Vec<ActiveSpan>>>,
+        pending_spans: &mut Vec<TraceSpan>,
+    ) {
+        match message {
+            SpanMessage::StartSpan(trace_id, operation) => {
+                // Handle span start - this is already done in the main method
+                // The background processor just logs it
+                tracing::debug!("Background processor: Started span for trace {} with operation {}", trace_id, operation);
+            },
+            SpanMessage::EndSpan(span_id, result) => {
+                // Handle span end - this is already done in the main method
+                // The background processor just logs it
+                tracing::debug!("Background processor: Ended span {} with success: {}", span_id, result.success);
+            },
+            SpanMessage::AddAnnotation(trace_id, key, value) => {
+                // Handle annotation
+                if let Some(mut spans) = active_spans.get_mut(&trace_id) {
+                    if let Some(active_span) = spans.last_mut() {
+                        active_span.add_annotation(key, value);
+                    }
+                }
+            },
+            SpanMessage::AddTag(trace_id, key, value) => {
+                // Handle tag
+                if let Some(mut spans) = active_spans.get_mut(&trace_id) {
+                    if let Some(active_span) = spans.last_mut() {
+                        active_span.add_tag(key, value);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Flush spans to storage
+    async fn flush_spans(pending_spans: &mut Vec<TraceSpan>, config: &TracingConfig) {
+        if pending_spans.is_empty() {
+            return;
+        }
+
+        // Export to X-Ray if enabled
+        if config.xray.enabled {
+            // Export logic here
+        }
+
+        pending_spans.clear();
     }
 
     /// Initialize X-Ray integration
@@ -177,7 +310,7 @@ impl TraceManager {
     }
 
     /// Start a new trace
-    pub async fn start_trace(&self, operation: &str) -> Result<TraceId> {
+    pub async fn start_trace(&self, operation: &str) -> Result<TraceInfo> {
         // Check sampling
         if !self.should_sample() {
             return Err(LoggingMonitoringError::TraceCreationFailed {
@@ -194,9 +327,21 @@ impl TraceManager {
 
         let active_span = ActiveSpan::new(span);
         
+        // Use the channel to send the span start message
+        self.span_sender
+            .send(SpanMessage::StartSpan(trace_id, operation.to_string()))
+            .await
+            .map_err(|_| LoggingMonitoringError::TraceCreationFailed {
+                message: "Failed to send span start message".to_string(),
+            })?;
+
+        // Also add to active spans for immediate access
         self.active_spans.entry(trace_id).or_insert_with(Vec::new).push(active_span);
 
-        Ok(trace_id)
+        Ok(TraceInfo {
+            trace_id,
+            root_span_id: span_id,
+        })
     }
 
     /// Start a new span within an existing trace
@@ -222,6 +367,15 @@ impl TraceManager {
 
     /// End a span
     pub async fn end_span(&self, span: SpanId, result: crate::SpanResult) -> Result<()> {
+        // Use the channel to send the span end message
+        self.span_sender
+            .send(SpanMessage::EndSpan(span, result.clone()))
+            .await
+            .map_err(|_| LoggingMonitoringError::InvalidSpanId {
+                span_id: span.to_string(),
+            })?;
+
+        // Also handle directly for immediate response
         let status = if result.success {
             SpanStatus::Ok
         } else {
@@ -260,6 +414,15 @@ impl TraceManager {
 
     /// Add an annotation to a trace
     pub async fn add_annotation(&self, trace: TraceId, key: &str, value: &str) -> Result<()> {
+        // Use the channel to send the annotation message
+        self.span_sender
+            .send(SpanMessage::AddAnnotation(trace, key.to_string(), value.to_string()))
+            .await
+            .map_err(|_| LoggingMonitoringError::InvalidTraceId {
+                trace_id: trace.to_string(),
+            })?;
+
+        // Also handle directly for immediate response
         if let Some(mut spans) = self.active_spans.get_mut(&trace) {
             if let Some(active_span) = spans.last_mut() {
                 active_span.add_annotation(key.to_string(), value.to_string());
@@ -414,16 +577,8 @@ impl TraceManager {
 
     /// Shutdown the trace manager
     pub async fn shutdown(&self) -> Result<()> {
-        self.shutdown.store(true, Ordering::SeqCst);
-        
-        // Export remaining traces
-        for entry in self.active_spans.iter() {
-            let trace_id = *entry.key();
-            if let Err(e) = self.export_to_xray(trace_id).await {
-                tracing::error!("Failed to export trace {}: {}", trace_id, e);
-            }
-        }
-        
+        self.shutdown.store(true, Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_millis(200)).await;
         Ok(())
     }
 }
@@ -447,8 +602,8 @@ mod tests {
         config.sampling.adaptive = false; // Disable adaptive sampling for tests
         let manager = TraceManager::new(config).await.unwrap();
         
-        let trace_id = manager.start_trace("test_operation").await;
-        assert!(trace_id.is_ok());
+        let trace_info = manager.start_trace("test_operation").await;
+        assert!(trace_info.is_ok());
     }
 
     #[tokio::test]
@@ -458,8 +613,8 @@ mod tests {
         config.sampling.adaptive = false; // Disable adaptive sampling for tests
         let manager = TraceManager::new(config).await.unwrap();
         
-        let trace_id = manager.start_trace("test_operation").await.unwrap();
-        let span_id = manager.start_span(trace_id, "test_span").await;
+        let trace_info = manager.start_trace("test_operation").await.unwrap();
+        let span_id = manager.start_span(trace_info.trace_id, "test_span").await;
         assert!(span_id.is_ok());
     }
 
@@ -470,8 +625,8 @@ mod tests {
         config.sampling.adaptive = false; // Disable adaptive sampling for tests
         let manager = TraceManager::new(config).await.unwrap();
         
-        let trace_id = manager.start_trace("test_operation").await.unwrap();
-        let span_id = manager.start_span(trace_id, "test_span").await.unwrap();
+        let trace_info = manager.start_trace("test_operation").await.unwrap();
+        let span_id = manager.start_span(trace_info.trace_id, "test_span").await.unwrap();
         
         let result = crate::SpanResult {
             success: true,
@@ -491,8 +646,8 @@ mod tests {
         config.sampling.adaptive = false; // Disable adaptive sampling for tests
         let manager = TraceManager::new(config).await.unwrap();
         
-        let trace_id = manager.start_trace("test_operation").await.unwrap();
-        let span_id = manager.start_span(trace_id, "test_span").await.unwrap();
+        let trace_info = manager.start_trace("test_operation").await.unwrap();
+        let span_id = manager.start_span(trace_info.trace_id, "test_span").await.unwrap();
         
         let result = crate::SpanResult {
             success: true,
@@ -503,7 +658,7 @@ mod tests {
         
         manager.end_span(span_id, result).await.unwrap();
         
-        let spans = manager.get_trace_spans(trace_id).await.unwrap();
+        let spans = manager.get_trace_spans(trace_info.trace_id).await.unwrap();
         assert_eq!(spans.len(), 2); // Root span + child span
     }
 } 

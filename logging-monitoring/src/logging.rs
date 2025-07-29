@@ -150,73 +150,121 @@ impl LogManager {
         };
 
         let manager = Self {
-            config,
+            config: config.clone(),
             cloudwatch_client,
             log_sender,
             buffer: buffer.clone(),
             shutdown: shutdown.clone(),
         };
 
-        // Start background processing
-        manager.start_background_processing(log_receiver, buffer, shutdown).await;
+        // Start background processing with proper task handle management
+        manager.start_background_processing(log_receiver, buffer, shutdown, config).await;
 
         Ok(manager)
     }
 
-    /// Start background log processing
+    /// Start background log processing with proper lifecycle management
     async fn start_background_processing(
         &self,
         mut receiver: mpsc::Receiver<LogEntry>,
         buffer: Arc<Mutex<Vec<LogEntry>>>,
         shutdown: Arc<AtomicBool>,
+        config: LoggingConfig,
     ) {
-        let config = self.config.clone();
         let cloudwatch_client = self.cloudwatch_client.clone();
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(config.buffer.flush_interval);
+            let mut pending_entries = Vec::new();
             
             loop {
                 tokio::select! {
-                    // Process incoming log entries
-                    Some(entry) = receiver.recv() => {
-                        let mut buffer_guard = buffer.lock().await;
-                        buffer_guard.push(entry);
-                        
-                        // Check if buffer is full
-                        if buffer_guard.len() >= config.buffer.size {
-                            if config.buffer.drop_when_full {
-                                buffer_guard.clear();
-                                warn!("Log buffer full, dropping logs");
-                            } else {
-                                // Process buffer immediately
-                                if let Err(e) = Self::process_log_buffer(&config, &cloudwatch_client, &mut buffer_guard).await {
-                                    error!("Failed to process log buffer: {}", e);
+                    // Handle incoming log entries
+                    result = receiver.recv() => {
+                        match result {
+                            Some(entry) => {
+                                pending_entries.push(entry);
+                                
+                                // Flush if buffer is full
+                                if pending_entries.len() >= config.buffer.size {
+                                    Self::flush_entries(
+                                        &mut pending_entries,
+                                        &buffer,
+                                        &cloudwatch_client,
+                                        &config
+                                    ).await;
                                 }
+                            },
+                            None => {
+                                // Channel closed, flush remaining entries and exit
+                                if !pending_entries.is_empty() {
+                                    Self::flush_entries(
+                                        &mut pending_entries,
+                                        &buffer,
+                                        &cloudwatch_client,
+                                        &config
+                                    ).await;
+                                }
+                                break;
                             }
                         }
-                    }
+                    },
                     
                     // Periodic flush
                     _ = interval.tick() => {
-                        let mut buffer_guard = buffer.lock().await;
-                        if !buffer_guard.is_empty() {
-                            if let Err(e) = Self::process_log_buffer(&config, &cloudwatch_client, &mut buffer_guard).await {
-                                error!("Failed to process log buffer: {}", e);
-                            }
+                        if !pending_entries.is_empty() {
+                            Self::flush_entries(
+                                &mut pending_entries,
+                                &buffer,
+                                &cloudwatch_client,
+                                &config
+                            ).await;
                         }
-                    }
+                    },
                     
-                    // Check shutdown
+                    // Check for shutdown signal
                     _ = async {
-                        let shutdown_guard = shutdown.load(Ordering::Relaxed);
-                        shutdown_guard
+                        while !shutdown.load(Ordering::Relaxed) {
+                            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        }
                     } => {
+                        // Shutdown requested, flush remaining entries and exit
+                        if !pending_entries.is_empty() {
+                            Self::flush_entries(
+                                &mut pending_entries,
+                                &buffer,
+                                &cloudwatch_client,
+                                &config
+                            ).await;
+                        }
                         break;
                     }
                 }
             }
         });
+    }
+
+    /// Flush log entries to storage
+    async fn flush_entries(
+        pending_entries: &mut Vec<LogEntry>,
+        buffer: &Arc<Mutex<Vec<LogEntry>>>,
+        cloudwatch_client: &Option<CloudWatchLogsClient>,
+        config: &LoggingConfig,
+    ) {
+        if pending_entries.is_empty() {
+            return;
+        }
+
+        // Add to local buffer and process
+        {
+            let mut buffer_guard = buffer.lock().await;
+            buffer_guard.extend(pending_entries.drain(..));
+            
+            // Process the buffer using existing method
+            if let Err(e) = Self::process_log_buffer(config, cloudwatch_client, &mut buffer_guard).await {
+                eprintln!("Failed to process log buffer: {:?}", e);
+            }
+        }
     }
 
     /// Process log buffer
@@ -484,9 +532,14 @@ impl LogManager {
         self.config.env_filter.clone()
     }
 
-    /// Shutdown the log manager
+    /// Add proper shutdown mechanism
     pub async fn shutdown(&self) -> Result<()> {
+        // Signal shutdown
         self.shutdown.store(true, Ordering::Relaxed);
+        
+        // Give background task time to finish
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        
         Ok(())
     }
 }
@@ -517,7 +570,6 @@ impl Drop for LogManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     #[tokio::test]
     async fn test_log_manager_creation() {

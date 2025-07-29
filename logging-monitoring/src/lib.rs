@@ -14,13 +14,15 @@
 //! ## Quick Start
 //! 
 //! ```rust
-//! use logging_monitoring::{LoggingMonitoringSystem, LoggingMonitoringConfig, LogContext, LogLevel};
+//! use logging_monitoring::{LoggingMonitoringSystem, LoggingMonitoringConfig, LogContext, LogLevel, LoggingMonitoring, SpanResult, HealthStatus, SystemEvent, EventType, events::EventSeverity};
 //! 
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Initialize the system
-//!     let config = LoggingMonitoringConfig::default();
-//!     LoggingMonitoringSystem::initialize(config).await?;
+//!     let mut config = LoggingMonitoringConfig::default();
+//!     config.tracing.sampling.rate = 1.0; // 100% sampling for example
+//!     config.tracing.sampling.adaptive = false;
+//!     LoggingMonitoringSystem::initialize(config.clone()).await?;
 //!     
 //!     // Create a system instance
 //!     let system = LoggingMonitoringSystem::new(config).await?;
@@ -37,12 +39,12 @@
 //!     system.record_counter("requests_total", 1, tags).await?;
 //!     
 //!     // Start tracing
-//!     let trace_id = system.start_trace("api_request").await?;
-//!     let span_id = system.start_span(trace_id, "database_query").await?;
+//!     let trace_info = system.start_trace("api_request").await?;
+//!     let span_id = system.start_span(trace_info.trace_id, "database_query").await?;
 //!     
 //!     // ... perform work ...
 //!     
-//!     system.end_span(span_id, crate::SpanResult {
+//!     system.end_span(span_id, SpanResult {
 //!         success: true,
 //!         error_message: None,
 //!         duration_ms: 100,
@@ -50,12 +52,12 @@
 //!     }).await?;
 //!     
 //!     // Report health
-//!     system.report_health("my_service", crate::health::HealthStatus::Healthy).await?;
+//!     system.report_health("my_service", HealthStatus::Healthy).await?;
 //!     
 //!     // Emit events
-//!     let event = crate::events::SystemEvent::new(
-//!         crate::events::EventType::System,
-//!         crate::events::EventSeverity::Info,
+//!     let event = SystemEvent::new(
+//!         EventType::System,
+//!         EventSeverity::Info,
 //!         "Service Status".to_string(),
 //!         "Service is running normally".to_string(),
 //!         "my_service".to_string(),
@@ -71,7 +73,7 @@
 //! ### Custom Configuration
 //! 
 //! ```rust
-//! use logging_monitoring::{LoggingMonitoringConfig, LoggingConfig, TracingConfig};
+//! use logging_monitoring::{LoggingMonitoringConfig, config::{LoggingConfig, TracingConfig}};
 //! 
 //! let mut config = LoggingMonitoringConfig::default();
 //! 
@@ -94,46 +96,66 @@
 //! ### Health Monitoring
 //! 
 //! ```rust
-//! // Add custom health checks
-//! system.health_manager.add_service(
-//!     "database".to_string(),
-//!     crate::config::ServiceHealthConfig {
-//!         endpoint: "/health".to_string(),
-//!         expected_response_time: std::time::Duration::from_secs(5),
-//!         retry_count: 3,
-//!         circuit_breaker: true,
-//!         failure_threshold: 5,
-//!     }
-//! ).await?;
+//! use logging_monitoring::{LoggingMonitoringSystem, LoggingMonitoringConfig, config::ServiceHealthConfig, LoggingMonitoring};
 //! 
-//! // Check system health
-//! let health = system.get_system_health().await?;
-//! println!("System health: {:?}", health.overall_status);
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let config = LoggingMonitoringConfig::default();
+//!     let system = LoggingMonitoringSystem::new(config).await?;
+//!     
+//!     // Add custom health checks
+//!     system.health_manager().add_service(
+//!         "database".to_string(),
+//!         ServiceHealthConfig {
+//!             endpoint: "/health".to_string(),
+//!             expected_response_time: std::time::Duration::from_secs(5),
+//!             retry_count: 3,
+//!             circuit_breaker: true,
+//!             failure_threshold: 5,
+//!         }
+//!     ).await?;
+//! 
+//!     // Check system health
+//!     let health = system.get_system_health().await?;
+//!     println!("System health: {:?}", health.overall_status);
+//!     
+//!     Ok(())
+//! }
 //! ```
 //! 
 //! ### Event Management
 //! 
 //! ```rust
-//! // Create alerts
-//! let alert = system.event_manager.alert()
-//!     .title("High CPU Usage".to_string())
-//!     .message("CPU usage is above 90%".to_string())
-//!     .severity(crate::events::EventSeverity::High)
-//!     .source("monitoring".to_string())
-//!     .category("performance".to_string())
-//!     .build()?;
+//! use logging_monitoring::{LoggingMonitoringSystem, LoggingMonitoringConfig, events::{EventSeverity, NotificationPriority, NotificationChannel}, LoggingMonitoring};
 //! 
-//! system.emit_alert(alert).await?;
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let config = LoggingMonitoringConfig::default();
+//!     let system = LoggingMonitoringSystem::new(config).await?;
+//!     
+//!     // Create alerts
+//!     let alert = system.event_manager().alert()
+//!         .title("High CPU Usage".to_string())
+//!         .message("CPU usage is above 90%".to_string())
+//!         .severity(EventSeverity::High)
+//!         .source("monitoring".to_string())
+//!         .category("performance".to_string())
+//!         .build()?;
 //! 
-//! // Create notifications
-//! let notification = system.event_manager.notification()
-//!     .title("Deployment Complete".to_string())
-//!     .message("New version deployed successfully".to_string())
-//!     .priority(crate::events::NotificationPriority::Normal)
-//!     .channel(crate::events::NotificationChannel::Slack)
-//!     .build()?;
+//!     system.emit_alert(alert).await?;
 //! 
-//! system.emit_notification(notification).await?;
+//!     // Create notifications
+//!     let notification = system.event_manager().notification()
+//!         .title("Deployment Complete".to_string())
+//!         .message("New version deployed successfully".to_string())
+//!         .priority(NotificationPriority::Normal)
+//!         .channel(NotificationChannel::Slack)
+//!         .build()?;
+//! 
+//!     system.emit_notification(notification).await?;
+//!     
+//!     Ok(())
+//! }
 //! ```
 
 pub mod error;
@@ -174,7 +196,7 @@ pub trait LoggingMonitoring {
     async fn log_audit(&self, action: AuditAction, user: UserId, context: AuditContext) -> Result<()>;
     
     // Tracing operations
-    async fn start_trace(&self, operation: &str) -> Result<TraceId>;
+    async fn start_trace(&self, operation: &str) -> Result<TraceInfo>;
     async fn start_span(&self, parent: TraceId, operation: &str) -> Result<SpanId>;
     async fn end_span(&self, span: SpanId, result: SpanResult) -> Result<()>;
     async fn add_trace_annotation(&self, trace: TraceId, key: &str, value: &str) -> Result<()>;
@@ -313,7 +335,7 @@ impl LoggingMonitoring for LoggingMonitoringSystem {
         self.log_manager.log_audit(action, user, context).await
     }
 
-    async fn start_trace(&self, operation: &str) -> Result<TraceId> {
+    async fn start_trace(&self, operation: &str) -> Result<TraceInfo> {
         self.trace_manager.start_trace(operation).await
     }
 
@@ -400,6 +422,9 @@ pub struct SpanResult {
 pub type TraceId = uuid::Uuid;
 pub type SpanId = uuid::Uuid;
 
+/// Re-export TraceInfo from tracing module
+pub use tracing::TraceInfo;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,11 +465,11 @@ mod tests {
         config.tracing.sampling.adaptive = false; // Disable adaptive sampling for tests
         let system = LoggingMonitoringSystem::new(config).await.unwrap();
         
-        let trace_id = system.start_trace("test_operation").await;
-        assert!(trace_id.is_ok());
+        let trace_info = system.start_trace("test_operation").await;
+        assert!(trace_info.is_ok());
         
-        let trace_id = trace_id.unwrap();
-        let span_id = system.start_span(trace_id, "test_span").await;
+        let trace_info = trace_info.unwrap();
+        let span_id = system.start_span(trace_info.trace_id, "test_span").await;
         assert!(span_id.is_ok());
         
         let span_id = span_id.unwrap();

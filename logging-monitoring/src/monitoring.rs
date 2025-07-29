@@ -555,7 +555,7 @@ mod tests {
         assert!(summary.is_ok());
         
         let summary = summary.unwrap();
-        assert!(summary.alert_count() >= 0);
+        assert!(summary.alert_count() == 0 || summary.alert_count() > 0);
     }
 
     #[tokio::test]

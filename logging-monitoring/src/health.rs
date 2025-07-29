@@ -529,7 +529,7 @@ mod tests {
         let manager = HealthManager::new(config).await.unwrap();
         
         // Add some test results
-        let mut result1 = HealthCheckResult {
+        let result1 = HealthCheckResult {
             service_name: "test1".to_string(),
             status: HealthStatus::Healthy,
             response_time_ms: 100,
@@ -538,7 +538,7 @@ mod tests {
             details: HashMap::new(),
         };
         
-        let mut result2 = HealthCheckResult {
+        let result2 = HealthCheckResult {
             service_name: "test2".to_string(),
             status: HealthStatus::Unhealthy,
             response_time_ms: 200,

@@ -279,7 +279,7 @@ pub struct EventManager {
 impl EventManager {
     /// Create a new event manager
     pub async fn new(config: EventsConfig) -> Result<Self> {
-        let (event_sender, event_receiver) = mpsc::channel(1000);
+        let (event_sender, event_receiver) = mpsc::channel(config.performance.channel_capacity);
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let shutdown = Arc::new(Mutex::new(false));
 
@@ -346,11 +346,24 @@ impl EventManager {
                         }
                     }
                     
-                    // Check shutdown
+                    // Check shutdown - fixed logic
                     _ = async {
-                        let shutdown_guard = shutdown.lock().await;
-                        *shutdown_guard
+                        loop {
+                            let shutdown_guard = shutdown.lock().await;
+                            if *shutdown_guard {
+                                break;
+                            }
+                            drop(shutdown_guard);
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
                     } => {
+                        // Flush remaining events before shutdown
+                        let mut buffer_guard = buffer.lock().await;
+                        if !buffer_guard.is_empty() {
+                            if let Err(e) = Self::process_event_buffer(&config, &sns_client, &mut buffer_guard).await {
+                                tracing::error!("Failed to process event buffer during shutdown: {}", e);
+                            }
+                        }
                         break;
                     }
                 }

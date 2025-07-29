@@ -15,7 +15,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting Basic Logging & Monitoring Example");
     
     // Create a simple configuration
-    let config = LoggingMonitoringConfig::default();
+    let mut config = LoggingMonitoringConfig::default();
+    config.tracing.sampling.rate = 1.0; // 100% sampling for example
+    config.tracing.sampling.adaptive = false;
     
     // Initialize the system
     LoggingMonitoringSystem::initialize(config.clone()).await?;
@@ -45,15 +47,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     system.log_structured(LogLevel::Info, structured_event).await?;
     
-    // Tracing
-    let trace_id = system.start_trace("api_request").await?;
-    system.add_trace_annotation(trace_id, "endpoint", "/api/users").await?;
+    // Tracing - Start a trace and get both trace_id and root_span_id
+    let trace_info = system.start_trace("api_request").await?;
+    system.add_trace_annotation(trace_info.trace_id, "endpoint", "/api/users").await?;
     
-    let span_id = system.start_span(trace_id, "database_query").await?;
+    // Start a child span
+    let span_id = system.start_span(trace_info.trace_id, "database_query").await?;
     
     // Simulate some work
     tokio::time::sleep(Duration::from_millis(100)).await;
     
+    // End the child span
     system.end_span(span_id, SpanResult {
         success: true,
         error_message: None,
@@ -61,8 +65,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         metadata: HashMap::new(),
     }).await?;
     
-    // End the trace
-    system.end_span(trace_id, SpanResult {
+    // End the root span (trace)
+    system.end_span(trace_info.root_span_id, SpanResult {
         success: true,
         error_message: None,
         duration_ms: 100,

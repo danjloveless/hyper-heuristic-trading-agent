@@ -4,9 +4,9 @@
 //! in a realistic trading application scenario.
 
 use logging_monitoring::{
-    LoggingMonitoringSystem, LoggingMonitoringConfig, LogContext, LogLevel,
-    StructuredEvent, SpanResult, HealthStatus, SystemEvent, Alert, Notification,
-    EventType, AuditAction, AuditContext, UserId, LoggingMonitoring,
+    LoggingMonitoringSystem, LoggingMonitoringConfig, LogContext,
+    SpanResult, HealthStatus, SystemEvent, Alert, Notification,
+    EventType, AuditAction, AuditContext, LoggingMonitoring,
 };
 use logging_monitoring::events::{EventSeverity, NotificationPriority, NotificationChannel};
 use std::collections::HashMap;
@@ -90,12 +90,12 @@ async fn simulate_trading_application(system: &LoggingMonitoringSystem) -> Resul
     system.log_info("Trading engine started", context.clone()).await?;
     
     // Start a trace for the trading operation
-    let trace_id = system.start_trace("trading_operation").await?;
-    system.add_trace_annotation(trace_id, "user_id", "user-67890").await?;
-    system.add_trace_annotation(trace_id, "operation_type", "buy_order").await?;
+    let trace_info = system.start_trace("trading_operation").await?;
+    system.add_trace_annotation(trace_info.trace_id, "user_id", "user-67890").await?;
+    system.add_trace_annotation(trace_info.trace_id, "operation_type", "buy_order").await?;
     
     // Simulate market data analysis
-    let analysis_span = system.start_span(trace_id, "market_analysis").await?;
+    let analysis_span = system.start_span(trace_info.trace_id, "market_analysis").await?;
     sleep(Duration::from_millis(50)).await;
     
     // Record analysis metrics
@@ -112,7 +112,7 @@ async fn simulate_trading_application(system: &LoggingMonitoringSystem) -> Resul
     }).await?;
     
     // Simulate order execution
-    let execution_span = system.start_span(trace_id, "order_execution").await?;
+    let execution_span = system.start_span(trace_info.trace_id, "order_execution").await?;
     sleep(Duration::from_millis(100)).await;
     
     // Record execution metrics
@@ -130,7 +130,7 @@ async fn simulate_trading_application(system: &LoggingMonitoringSystem) -> Resul
     }).await?;
     
     // End the main trace
-    system.end_span(trace_id, SpanResult {
+    system.end_span(trace_info.root_span_id, SpanResult {
         success: true,
         error_message: None,
         duration_ms: 150,

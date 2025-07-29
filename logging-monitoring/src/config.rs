@@ -203,7 +203,7 @@ impl Default for LogPerformanceConfig {
         Self {
             async_logging: true,
             worker_threads: 2,
-            channel_capacity: 10000,
+            channel_capacity: 10000, // Increased from default
             enable_sampling: false,
             sampling_rate: 1.0,
         }
@@ -598,6 +598,33 @@ impl Default for HealthThresholds {
     }
 }
 
+/// Event performance configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventPerformanceConfig {
+    /// Whether to enable async processing
+    pub async_processing: bool,
+    
+    /// Channel capacity
+    pub channel_capacity: usize,
+    
+    /// Worker thread count
+    pub worker_threads: usize,
+    
+    /// Batch size for processing
+    pub batch_size: usize,
+}
+
+impl Default for EventPerformanceConfig {
+    fn default() -> Self {
+        Self {
+            async_processing: true,
+            channel_capacity: 10000, // Increased capacity
+            worker_threads: 1,
+            batch_size: 100,
+        }
+    }
+}
+
 /// Events configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventsConfig {
@@ -612,6 +639,9 @@ pub struct EventsConfig {
     
     /// Event filtering configuration
     pub filtering: EventFilteringConfig,
+    
+    /// Performance configuration
+    pub performance: EventPerformanceConfig,
 }
 
 impl Default for EventsConfig {
@@ -621,6 +651,7 @@ impl Default for EventsConfig {
             sns: SnsConfig::default(),
             routing: EventRoutingConfig::default(),
             filtering: EventFilteringConfig::default(),
+            performance: EventPerformanceConfig::default(),
         }
     }
 }

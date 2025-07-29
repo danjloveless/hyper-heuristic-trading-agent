@@ -5,6 +5,7 @@ use crate::config::{MetricsConfig, CloudWatchMetricsConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use chrono::{DateTime, Utc};
 use tokio::sync::{mpsc, Mutex};
@@ -59,12 +60,12 @@ pub struct MetricData {
 
 /// Metric entry for internal processing
 #[derive(Debug, Clone)]
-struct MetricEntry {
-    name: String,
-    metric_type: MetricType,
-    value: MetricValue,
-    tags: Tags,
-    timestamp: DateTime<Utc>,
+pub struct MetricEntry {
+    pub name: String,
+    pub metric_type: MetricType,
+    pub value: MetricValue,
+    pub tags: Tags,
+    pub timestamp: DateTime<Utc>,
 }
 
 /// Main metrics manager
@@ -72,25 +73,22 @@ struct MetricEntry {
 pub struct MetricsManager {
     config: MetricsConfig,
     metric_sender: mpsc::Sender<MetricEntry>,
-    buffer: Arc<Mutex<Vec<MetricEntry>>>,
-    shutdown: Arc<Mutex<bool>>,
+    aggregated_metrics: Arc<DashMap<String, AggregatedMetric>>,
+    shutdown: Arc<AtomicBool>,
     
     // Prometheus registry and metrics
     prometheus_registry: Option<Arc<Mutex<PrometheusRegistry>>>,
     prometheus_counters: DashMap<String, PrometheusCounter>,
     prometheus_gauges: DashMap<String, PrometheusGauge>,
     prometheus_histograms: DashMap<String, PrometheusHistogram>,
-    
-    // Aggregated metrics storage
-    aggregated_metrics: DashMap<String, AggregatedMetric>,
 }
 
 impl MetricsManager {
     /// Create a new metrics manager
     pub async fn new(config: MetricsConfig) -> Result<Self> {
         let (metric_sender, metric_receiver) = mpsc::channel(config.performance.buffer_size);
-        let buffer = Arc::new(Mutex::new(Vec::new()));
-        let shutdown = Arc::new(Mutex::new(false));
+        let aggregated_metrics = Arc::new(DashMap::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
 
         // Initialize Prometheus registry if enabled
         let prometheus_registry = if config.prometheus.enabled {
@@ -100,19 +98,18 @@ impl MetricsManager {
         };
 
         let manager = Self {
-            config,
+            config: config.clone(),
             metric_sender,
-            buffer: buffer.clone(),
+            aggregated_metrics: aggregated_metrics.clone(),
             shutdown: shutdown.clone(),
             prometheus_registry,
             prometheus_counters: DashMap::new(),
             prometheus_gauges: DashMap::new(),
             prometheus_histograms: DashMap::new(),
-            aggregated_metrics: DashMap::new(),
         };
 
         // Start background processing
-        manager.start_background_processing(metric_receiver, buffer, shutdown).await;
+        manager.start_background_processing(metric_receiver, aggregated_metrics, shutdown, config).await;
 
         Ok(manager)
     }
@@ -121,68 +118,77 @@ impl MetricsManager {
     async fn start_background_processing(
         &self,
         mut receiver: mpsc::Receiver<MetricEntry>,
-        buffer: Arc<Mutex<Vec<MetricEntry>>>,
-        shutdown: Arc<Mutex<bool>>,
-    ) {
-        let config = self.config.clone();
-        let aggregated_metrics = self.aggregated_metrics.clone();
-
+        aggregated_metrics: Arc<DashMap<String, AggregatedMetric>>,
+        shutdown: Arc<AtomicBool>,
+        config: MetricsConfig,
+    ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(1));
+            let mut interval = tokio::time::interval(config.aggregation.intervals[0]);
             
             loop {
                 tokio::select! {
-                    // Process incoming metrics
-                    Some(entry) = receiver.recv() => {
-                        let mut buffer_guard = buffer.lock().await;
-                        buffer_guard.push(entry);
-                        
-                        // Check if buffer is full
-                        if buffer_guard.len() >= config.performance.buffer_size {
-                            if let Err(e) = Self::process_metric_buffer(&config, &aggregated_metrics, &mut buffer_guard).await {
-                                tracing::error!("Failed to process metric buffer: {}", e);
-                            }
+                    result = receiver.recv() => {
+                        match result {
+                            Some(entry) => {
+                                Self::process_metric_message(entry, &aggregated_metrics, &config).await;
+                            },
+                            None => break,
                         }
-                    }
+                    },
                     
-                    // Periodic flush
                     _ = interval.tick() => {
-                        let mut buffer_guard = buffer.lock().await;
-                        if !buffer_guard.is_empty() {
-                            if let Err(e) = Self::process_metric_buffer(&config, &aggregated_metrics, &mut buffer_guard).await {
-                                tracing::error!("Failed to process metric buffer: {}", e);
-                            }
-                        }
-                    }
+                        Self::aggregate_metrics(&aggregated_metrics, &config).await;
+                    },
                     
-                    // Check shutdown
                     _ = async {
-                        let shutdown_guard = shutdown.lock().await;
-                        *shutdown_guard
+                        while !shutdown.load(Ordering::Relaxed) {
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
                     } => {
                         break;
                     }
                 }
             }
-        });
+        })
     }
 
-    /// Process metric buffer
-    async fn process_metric_buffer(
+    /// Process metric message
+    async fn process_metric_message(
+        entry: MetricEntry,
+        aggregated_metrics: &Arc<DashMap<String, AggregatedMetric>>,
+        _config: &MetricsConfig,
+    ) {
+        // Update aggregated metrics
+        let metric_key = Self::create_metric_key(&entry.name, &entry.tags);
+        
+        aggregated_metrics
+            .entry(metric_key.clone())
+            .and_modify(|metric| {
+                metric.update(&entry);
+            })
+            .or_insert_with(|| AggregatedMetric::new(entry.clone()));
+
+        // Send to CloudWatch if enabled
+        if _config.cloudwatch.enabled {
+            if let Err(e) = Self::send_to_cloudwatch(&_config.cloudwatch, &entry).await {
+                tracing::error!("Failed to send metric to CloudWatch: {}", e);
+            }
+        }
+
+        // Update metrics crate
+        if let Err(e) = Self::update_metrics_crate(&entry) {
+            tracing::error!("Failed to update metrics crate: {}", e);
+        }
+    }
+
+    /// Aggregate metrics
+    async fn aggregate_metrics(
+        aggregated_metrics: &Arc<DashMap<String, AggregatedMetric>>,
         config: &MetricsConfig,
-        aggregated_metrics: &DashMap<String, AggregatedMetric>,
-        buffer: &mut Vec<MetricEntry>,
-    ) -> Result<()> {
-        if buffer.is_empty() {
-            return Ok(());
-        }
-
-        // Process each metric
-        for entry in buffer.drain(..) {
-            Self::process_single_metric(config, aggregated_metrics, entry).await?;
-        }
-
-        Ok(())
+    ) {
+        // This would perform additional aggregation logic
+        // For now, we'll just log that aggregation is happening
+        tracing::debug!("Aggregating {} metrics", aggregated_metrics.len());
     }
 
     /// Process a single metric
@@ -477,8 +483,8 @@ impl MetricsManager {
 
     /// Shutdown the metrics manager
     pub async fn shutdown(&self) -> Result<()> {
-        let mut shutdown_guard = self.shutdown.lock().await;
-        *shutdown_guard = true;
+        self.shutdown.store(true, Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_millis(200)).await;
         Ok(())
     }
 }
