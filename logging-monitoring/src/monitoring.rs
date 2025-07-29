@@ -1,11 +1,10 @@
 //! Unified monitoring interface
 
-use crate::error::{LoggingMonitoringError, Result};
+use crate::error::Result;
 use crate::config::{MonitoringConfig, PerformanceMonitoringConfig, ResourceMonitoringConfig, BusinessMetricsConfig};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use chrono::{DateTime, Utc};
 use tokio::sync::Mutex;
 
@@ -53,6 +52,7 @@ pub struct MonitoringData {
 }
 
 /// Main monitoring manager
+#[derive(Clone)]
 pub struct MonitoringManager {
     config: MonitoringConfig,
     performance_metrics: Arc<Mutex<Vec<PerformanceMetrics>>>,
@@ -100,7 +100,8 @@ impl MonitoringManager {
                                 
                                 // Keep only last 1000 metrics
                                 if guard.len() > 1000 {
-                                    guard.drain(0..guard.len() - 1000);
+                                    let to_remove = guard.len() - 1000;
+                                    guard.drain(0..to_remove);
                                 }
                             }
                         }
@@ -113,7 +114,8 @@ impl MonitoringManager {
                                 
                                 // Keep only last 1000 metrics
                                 if guard.len() > 1000 {
-                                    guard.drain(0..guard.len() - 1000);
+                                    let to_remove = guard.len() - 1000;
+                                    guard.drain(0..to_remove);
                                 }
                             }
                         }
@@ -126,7 +128,8 @@ impl MonitoringManager {
                                 
                                 // Keep only last 1000 metrics
                                 if guard.len() > 1000 {
-                                    guard.drain(0..guard.len() - 1000);
+                                    let to_remove = guard.len() - 1000;
+                                    guard.drain(0..to_remove);
                                 }
                             }
                         }
@@ -144,7 +147,7 @@ impl MonitoringManager {
     }
 
     /// Collect performance metrics
-    async fn collect_performance_metrics(config: &PerformanceMonitoringConfig) -> Result<PerformanceMetrics> {
+    async fn collect_performance_metrics(_config: &PerformanceMonitoringConfig) -> Result<PerformanceMetrics> {
         // In a real implementation, this would collect actual performance data
         // For now, we'll return mock data
         
@@ -167,7 +170,7 @@ impl MonitoringManager {
     }
 
     /// Collect resource metrics
-    async fn collect_resource_metrics(config: &ResourceMonitoringConfig) -> Result<ResourceMetrics> {
+    async fn collect_resource_metrics(_config: &ResourceMonitoringConfig) -> Result<ResourceMetrics> {
         // In a real implementation, this would collect actual resource data
         // For now, we'll return mock data
         
@@ -190,7 +193,7 @@ impl MonitoringManager {
     }
 
     /// Collect business metrics
-    async fn collect_business_metrics(config: &BusinessMetricsConfig) -> Result<BusinessMetrics> {
+    async fn collect_business_metrics(_config: &BusinessMetricsConfig) -> Result<BusinessMetrics> {
         // In a real implementation, this would collect actual business data
         // For now, we'll return mock data
         

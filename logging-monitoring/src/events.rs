@@ -1,7 +1,7 @@
 //! Event management functionality
 
 use crate::error::{LoggingMonitoringError, Result};
-use crate::config::{EventsConfig, SnsConfig, EventRoutingConfig, EventFilteringConfig};
+use crate::config::{EventsConfig, SnsConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -265,6 +265,7 @@ enum EventEntry {
 }
 
 /// Main event manager
+#[derive(Clone)]
 pub struct EventManager {
     config: EventsConfig,
     event_sender: mpsc::Sender<EventEntry>,
@@ -284,7 +285,7 @@ impl EventManager {
 
         // Initialize SNS client if enabled
         let sns_client = if config.sns.enabled {
-            let aws_config = aws_config::from_env()
+            let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
                 .region(aws_config::Region::new(config.sns.region.clone()))
                 .load()
                 .await;
@@ -438,7 +439,7 @@ impl EventManager {
                 EventEntry::Notification(_) => "notification",
             };
             
-            if !config.filtering.service_filters.contains(source) {
+            if !config.filtering.service_filters.contains(&source.to_string()) {
                 return false;
             }
         }

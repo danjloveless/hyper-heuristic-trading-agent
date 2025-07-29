@@ -10,6 +10,131 @@
 //! - Real-time health monitoring
 //! - CloudWatch integration for centralized logging
 //! - Performance monitoring with minimal overhead
+//! 
+//! ## Quick Start
+//! 
+//! ```rust
+//! use logging_monitoring::{LoggingMonitoringSystem, LoggingMonitoringConfig, LogContext, LogLevel};
+//! 
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Initialize the system
+//!     let config = LoggingMonitoringConfig::default();
+//!     LoggingMonitoringSystem::initialize(config).await?;
+//!     
+//!     // Create a system instance
+//!     let system = LoggingMonitoringSystem::new(config).await?;
+//!     
+//!     // Log some events
+//!     let context = LogContext::new("my_service".to_string())
+//!         .with_request_id("req-123".to_string());
+//!     
+//!     system.log_info("Application started", context.clone()).await?;
+//!     
+//!     // Record metrics
+//!     let mut tags = std::collections::HashMap::new();
+//!     tags.insert("service".to_string(), "my_service".to_string());
+//!     system.record_counter("requests_total", 1, tags).await?;
+//!     
+//!     // Start tracing
+//!     let trace_id = system.start_trace("api_request").await?;
+//!     let span_id = system.start_span(trace_id, "database_query").await?;
+//!     
+//!     // ... perform work ...
+//!     
+//!     system.end_span(span_id, crate::SpanResult {
+//!         success: true,
+//!         error_message: None,
+//!         duration_ms: 100,
+//!         metadata: std::collections::HashMap::new(),
+//!     }).await?;
+//!     
+//!     // Report health
+//!     system.report_health("my_service", crate::health::HealthStatus::Healthy).await?;
+//!     
+//!     // Emit events
+//!     let event = crate::events::SystemEvent::new(
+//!         crate::events::EventType::System,
+//!         crate::events::EventSeverity::Info,
+//!         "Service Status".to_string(),
+//!         "Service is running normally".to_string(),
+//!         "my_service".to_string(),
+//!     );
+//!     system.emit_event(event).await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//! 
+//! ## Advanced Usage
+//! 
+//! ### Custom Configuration
+//! 
+//! ```rust
+//! use logging_monitoring::{LoggingMonitoringConfig, LoggingConfig, TracingConfig};
+//! 
+//! let mut config = LoggingMonitoringConfig::default();
+//! 
+//! // Configure logging
+//! config.logging.level = "DEBUG".to_string();
+//! config.logging.cloudwatch.enabled = true;
+//! config.logging.cloudwatch.log_group = "/myapp/logs".to_string();
+//! 
+//! // Configure tracing
+//! config.tracing.enabled = true;
+//! config.tracing.xray.enabled = true;
+//! config.tracing.xray.service_name = "my-service".to_string();
+//! 
+//! // Configure metrics
+//! config.metrics.enabled = true;
+//! config.metrics.prometheus.enabled = true;
+//! config.metrics.cloudwatch.enabled = true;
+//! ```
+//! 
+//! ### Health Monitoring
+//! 
+//! ```rust
+//! // Add custom health checks
+//! system.health_manager.add_service(
+//!     "database".to_string(),
+//!     crate::config::ServiceHealthConfig {
+//!         endpoint: "/health".to_string(),
+//!         expected_response_time: std::time::Duration::from_secs(5),
+//!         retry_count: 3,
+//!         circuit_breaker: true,
+//!         failure_threshold: 5,
+//!     }
+//! ).await?;
+//! 
+//! // Check system health
+//! let health = system.get_system_health().await?;
+//! println!("System health: {:?}", health.overall_status);
+//! ```
+//! 
+//! ### Event Management
+//! 
+//! ```rust
+//! // Create alerts
+//! let alert = system.event_manager.alert()
+//!     .title("High CPU Usage".to_string())
+//!     .message("CPU usage is above 90%".to_string())
+//!     .severity(crate::events::EventSeverity::High)
+//!     .source("monitoring".to_string())
+//!     .category("performance".to_string())
+//!     .build()?;
+//! 
+//! system.emit_alert(alert).await?;
+//! 
+//! // Create notifications
+//! let notification = system.event_manager.notification()
+//!     .title("Deployment Complete".to_string())
+//!     .message("New version deployed successfully".to_string())
+//!     .priority(crate::events::NotificationPriority::Normal)
+//!     .channel(crate::events::NotificationChannel::Slack)
+//!     .build()?;
+//! 
+//! system.emit_notification(notification).await?;
+//! ```
 
 pub mod error;
 pub mod logging;
@@ -22,8 +147,8 @@ pub mod config;
 
 pub use error::{LoggingMonitoringError, Result};
 pub use logging::{LogManager, LogLevel, LogContext, StructuredEvent};
-pub use monitoring::{MonitoringManager, MetricType, MetricValue, MetricData};
-pub use tracing::{TraceManager, TraceId, SpanId, TraceSpan, SpanStatus};
+pub use monitoring::MonitoringManager;
+pub use tracing::{TraceManager, TraceSpan, SpanStatus};
 pub use metrics::{MetricsManager, Tags};
 pub use health::{HealthManager, HealthStatus, SystemHealthStatus};
 pub use events::{EventManager, SystemEvent, Alert, Notification, EventType};
@@ -33,8 +158,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use chrono::{DateTime, Utc};
-use uuid::Uuid;
+
 
 /// Main interface for logging and monitoring operations
 #[async_trait]
@@ -73,6 +197,7 @@ pub trait LoggingMonitoring {
 }
 
 /// Main implementation of the logging and monitoring system
+#[derive(Clone)]
 pub struct LoggingMonitoringSystem {
     log_manager: LogManager,
     trace_manager: TraceManager,
@@ -104,11 +229,10 @@ impl LoggingMonitoringSystem {
 
     /// Initialize the global logging and monitoring system
     pub async fn initialize(config: LoggingMonitoringConfig) -> Result<()> {
-        let system = Self::new(config).await?;
+        let _system = Self::new(config).await?;
         
         // Set up global tracing subscriber
         tracing_subscriber::fmt()
-            .with_env_filter(&system.log_manager.get_env_filter())
             .with_target(false)
             .with_thread_ids(true)
             .with_thread_names(true)
@@ -116,10 +240,39 @@ impl LoggingMonitoringSystem {
             .with_line_number(true)
             .with_ansi(false)
             .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
-            .json()
             .init();
 
         Ok(())
+    }
+
+    /// Get a reference to the log manager
+    pub fn log_manager(&self) -> &LogManager {
+        &self.log_manager
+    }
+
+    /// Get a reference to the trace manager
+    pub fn trace_manager(&self) -> &TraceManager {
+        &self.trace_manager
+    }
+
+    /// Get a reference to the metrics manager
+    pub fn metrics_manager(&self) -> &MetricsManager {
+        &self.metrics_manager
+    }
+
+    /// Get a reference to the health manager
+    pub fn health_manager(&self) -> &HealthManager {
+        &self.health_manager
+    }
+
+    /// Get a reference to the event manager
+    pub fn event_manager(&self) -> &EventManager {
+        &self.event_manager
+    }
+
+    /// Get a reference to the monitoring manager
+    pub fn monitoring_manager(&self) -> &MonitoringManager {
+        &self.monitoring_manager
     }
 
     /// Shutdown the logging and monitoring system gracefully
@@ -244,5 +397,95 @@ pub struct SpanResult {
 }
 
 // Re-export commonly used types
-pub use uuid::Uuid as TraceId;
-pub use uuid::Uuid as SpanId; 
+pub type TraceId = uuid::Uuid;
+pub type SpanId = uuid::Uuid;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_system_creation() {
+        let config = LoggingMonitoringConfig::default();
+        let system = LoggingMonitoringSystem::new(config).await;
+        assert!(system.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_basic_logging() {
+        let config = LoggingMonitoringConfig::default();
+        let system = LoggingMonitoringSystem::new(config).await.unwrap();
+        
+        let context = LogContext::new("test_service".to_string());
+        let result = system.log_info("Test message", context).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_metrics_recording() {
+        let config = LoggingMonitoringConfig::default();
+        let system = LoggingMonitoringSystem::new(config).await.unwrap();
+        
+        let mut tags = HashMap::new();
+        tags.insert("test".to_string(), "value".to_string());
+        
+        let result = system.record_counter("test_counter", 1, tags).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_tracing() {
+        let mut config = LoggingMonitoringConfig::default();
+        config.tracing.sampling.rate = 1.0; // 100% sampling for tests
+        config.tracing.sampling.adaptive = false; // Disable adaptive sampling for tests
+        let system = LoggingMonitoringSystem::new(config).await.unwrap();
+        
+        let trace_id = system.start_trace("test_operation").await;
+        assert!(trace_id.is_ok());
+        
+        let trace_id = trace_id.unwrap();
+        let span_id = system.start_span(trace_id, "test_span").await;
+        assert!(span_id.is_ok());
+        
+        let span_id = span_id.unwrap();
+        let result = SpanResult {
+            success: true,
+            error_message: None,
+            duration_ms: 100,
+            metadata: HashMap::new(),
+        };
+        
+        let end_result = system.end_span(span_id, result).await;
+        assert!(end_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_health_monitoring() {
+        let config = LoggingMonitoringConfig::default();
+        let system = LoggingMonitoringSystem::new(config).await.unwrap();
+        
+        let result = system.report_health("test_service", HealthStatus::Healthy).await;
+        assert!(result.is_ok());
+        
+        let health = system.get_service_health("test_service").await;
+        assert!(health.is_ok());
+        assert_eq!(health.unwrap(), HealthStatus::Healthy);
+    }
+
+    #[tokio::test]
+    async fn test_event_emission() {
+        let config = LoggingMonitoringConfig::default();
+        let system = LoggingMonitoringSystem::new(config).await.unwrap();
+        
+        let event = SystemEvent::new(
+            EventType::System,
+            events::EventSeverity::Info,
+            "Test Event".to_string(),
+            "This is a test event".to_string(),
+            "test_service".to_string(),
+        );
+        
+        let result = system.emit_event(event).await;
+        assert!(result.is_ok());
+    }
+} 

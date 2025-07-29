@@ -1,7 +1,7 @@
 //! Health monitoring functionality
 
 use crate::error::{LoggingMonitoringError, Result};
-use crate::config::{HealthConfig, ServiceHealthConfig, HealthAlertingConfig, HealthThresholds};
+use crate::config::{HealthConfig, ServiceHealthConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -73,6 +73,7 @@ enum CircuitBreakerState {
 }
 
 /// Main health manager
+#[derive(Clone)]
 pub struct HealthManager {
     config: HealthConfig,
     services: DashMap<String, ServiceHealthCheck>,
@@ -415,11 +416,11 @@ impl HealthManager {
             total_response_time_ms: 0,
         };
 
-        for result in self.health_results.values() {
+        for result in self.health_results.iter() {
             stats.total_checks += 1;
-            stats.total_response_time_ms += result.response_time_ms;
+            stats.total_response_time_ms += result.value().response_time_ms;
             
-            match result.status {
+            match result.value().status {
                 HealthStatus::Healthy => stats.successful_checks += 1,
                 HealthStatus::Unhealthy => stats.failed_checks += 1,
                 _ => {

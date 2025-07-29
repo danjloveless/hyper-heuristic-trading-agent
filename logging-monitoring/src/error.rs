@@ -217,6 +217,9 @@ impl LoggingMonitoringError {
             LoggingMonitoringError::ShutdownInProgress => false,
             LoggingMonitoringError::AlreadyShutdown { .. } => false,
             LoggingMonitoringError::Wrapped { source } => source.is_retryable(),
+            LoggingMonitoringError::SpanCreationFailed { .. } => true,
+            LoggingMonitoringError::MetricAggregationFailed { .. } => true,
+            LoggingMonitoringError::FileSystemError { .. } => true,
         }
     }
 
@@ -274,6 +277,8 @@ impl LoggingMonitoringError {
             LoggingMonitoringError::ShutdownInProgress => ErrorSeverity::Low,
             LoggingMonitoringError::AlreadyShutdown { .. } => ErrorSeverity::Low,
             LoggingMonitoringError::Wrapped { source } => source.severity(),
+            LoggingMonitoringError::SpanCreationFailed { .. } => ErrorSeverity::Medium,
+            LoggingMonitoringError::MetricAggregationFailed { .. } => ErrorSeverity::Medium,
         }
     }
 

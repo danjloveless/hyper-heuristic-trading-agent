@@ -1,15 +1,16 @@
 //! Distributed tracing functionality
 
 use crate::error::{LoggingMonitoringError, Result};
-use crate::config::{TracingConfig, XRayConfig, TraceSamplingConfig, SpanConfig};
+use crate::config::TracingConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use tokio::sync::Mutex;
 use dashmap::DashMap;
+use std::time::Instant;
 
 /// Trace ID type
 pub type TraceId = Uuid;
@@ -95,7 +96,7 @@ impl TraceSpan {
 }
 
 /// Active span for tracking current operation
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ActiveSpan {
     span: TraceSpan,
     start_instant: Instant,
@@ -138,23 +139,25 @@ impl ActiveSpan {
 }
 
 /// Main trace manager
+#[derive(Clone)]
 pub struct TraceManager {
     config: TracingConfig,
     active_spans: DashMap<TraceId, Vec<ActiveSpan>>,
     completed_spans: DashMap<TraceId, Vec<TraceSpan>>,
     sampling_rate: f64,
-    shutdown: Arc<Mutex<bool>>,
+    shutdown: Arc<AtomicBool>,
 }
 
 impl TraceManager {
     /// Create a new trace manager
     pub async fn new(config: TracingConfig) -> Result<Self> {
+        let sampling_rate = config.sampling.rate; // Extract before moving config
         let manager = Self {
             config,
             active_spans: DashMap::new(),
             completed_spans: DashMap::new(),
-            sampling_rate: 0.1, // Default sampling rate
-            shutdown: Arc::new(Mutex::new(false)),
+            sampling_rate, // Use extracted sampling rate
+            shutdown: Arc::new(AtomicBool::new(false)),
         };
 
         // Initialize X-Ray if enabled
@@ -185,9 +188,9 @@ impl TraceManager {
         let trace_id = Uuid::new_v4();
         let span_id = Uuid::new_v4();
         
-        let span = TraceSpan::new(trace_id, span_id, operation.to_string())
-            .add_tag("service".to_string(), self.config.xray.service_name.clone())
-            .add_tag("environment".to_string(), self.config.xray.environment.clone());
+        let mut span = TraceSpan::new(trace_id, span_id, operation.to_string());
+        span.add_tag("service".to_string(), self.config.xray.service_name.clone());
+        span.add_tag("environment".to_string(), self.config.xray.environment.clone());
 
         let active_span = ActiveSpan::new(span);
         
@@ -201,10 +204,10 @@ impl TraceManager {
         let span_id = Uuid::new_v4();
         
         if let Some(mut spans) = self.active_spans.get_mut(&parent) {
-            let span = TraceSpan::new(parent, span_id, operation.to_string())
-                .with_parent(spans.last().map(|s| s.span_id()).unwrap_or_default())
-                .add_tag("service".to_string(), self.config.xray.service_name.clone())
-                .add_tag("environment".to_string(), self.config.xray.environment.clone());
+            let mut span = TraceSpan::new(parent, span_id, operation.to_string())
+                .with_parent(spans.last().map(|s| s.span_id()).unwrap_or_default());
+            span.add_tag("service".to_string(), self.config.xray.service_name.clone());
+            span.add_tag("environment".to_string(), self.config.xray.environment.clone());
 
             let active_span = ActiveSpan::new(span);
             spans.push(active_span);
@@ -226,7 +229,7 @@ impl TraceManager {
         };
 
         // Find and end the span
-        for entry in self.active_spans.iter_mut() {
+        for mut entry in self.active_spans.iter_mut() {
             let trace_id = *entry.key();
             let spans = entry.value_mut();
             
@@ -411,8 +414,7 @@ impl TraceManager {
 
     /// Shutdown the trace manager
     pub async fn shutdown(&self) -> Result<()> {
-        let mut shutdown_guard = self.shutdown.lock().await;
-        *shutdown_guard = true;
+        self.shutdown.store(true, Ordering::SeqCst);
         
         // Export remaining traces
         for entry in self.active_spans.iter() {
@@ -428,10 +430,9 @@ impl TraceManager {
 
 impl Drop for TraceManager {
     fn drop(&mut self) {
-        // Ensure cleanup on drop
-        let _ = tokio::runtime::Handle::current().block_on(async {
-            self.cleanup_old_traces().await;
-        });
+        // Set shutdown flag without blocking operations
+        // The background cleanup will check this flag and exit gracefully
+        self.shutdown.store(true, Ordering::SeqCst);
     }
 }
 
@@ -441,7 +442,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_trace_creation() {
-        let config = TracingConfig::default();
+        let mut config = TracingConfig::default();
+        config.sampling.rate = 1.0; // 100% sampling for tests
+        config.sampling.adaptive = false; // Disable adaptive sampling for tests
         let manager = TraceManager::new(config).await.unwrap();
         
         let trace_id = manager.start_trace("test_operation").await;
@@ -450,7 +453,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_span_creation() {
-        let config = TracingConfig::default();
+        let mut config = TracingConfig::default();
+        config.sampling.rate = 1.0; // 100% sampling for tests
+        config.sampling.adaptive = false; // Disable adaptive sampling for tests
         let manager = TraceManager::new(config).await.unwrap();
         
         let trace_id = manager.start_trace("test_operation").await.unwrap();
@@ -460,7 +465,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_span_ending() {
-        let config = TracingConfig::default();
+        let mut config = TracingConfig::default();
+        config.sampling.rate = 1.0; // 100% sampling for tests
+        config.sampling.adaptive = false; // Disable adaptive sampling for tests
         let manager = TraceManager::new(config).await.unwrap();
         
         let trace_id = manager.start_trace("test_operation").await.unwrap();
@@ -479,7 +486,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_trace_spans() {
-        let config = TracingConfig::default();
+        let mut config = TracingConfig::default();
+        config.sampling.rate = 1.0; // 100% sampling for tests
+        config.sampling.adaptive = false; // Disable adaptive sampling for tests
         let manager = TraceManager::new(config).await.unwrap();
         
         let trace_id = manager.start_trace("test_operation").await.unwrap();

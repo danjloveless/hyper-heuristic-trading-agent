@@ -1,19 +1,17 @@
 //! Logging functionality for the monitoring system
 
 use crate::error::{LoggingMonitoringError, Result};
-use crate::config::{LoggingConfig, CloudWatchLogConfig, LocalFileLogConfig, LogBufferConfig, LogPerformanceConfig};
+use crate::config::{LoggingConfig, CloudWatchLogConfig, LocalFileLogConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{info, warn, error, debug};
 use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use aws_sdk_cloudwatchlogs::types::InputLogEvent;
-use futures::stream::{self, StreamExt};
 
 /// Log levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,12 +122,13 @@ struct LogEntry {
 }
 
 /// Main log manager
+#[derive(Clone)]
 pub struct LogManager {
     config: LoggingConfig,
     cloudwatch_client: Option<CloudWatchLogsClient>,
     log_sender: mpsc::Sender<LogEntry>,
     buffer: Arc<Mutex<Vec<LogEntry>>>,
-    shutdown: Arc<Mutex<bool>>,
+    shutdown: Arc<AtomicBool>,
 }
 
 impl LogManager {
@@ -137,11 +136,11 @@ impl LogManager {
     pub async fn new(config: LoggingConfig) -> Result<Self> {
         let (log_sender, log_receiver) = mpsc::channel(config.performance.channel_capacity);
         let buffer = Arc::new(Mutex::new(Vec::new()));
-        let shutdown = Arc::new(Mutex::new(false));
+        let shutdown = Arc::new(AtomicBool::new(false));
 
         // Initialize CloudWatch client if enabled
         let cloudwatch_client = if config.cloudwatch.enabled {
-            let aws_config = aws_config::from_env()
+            let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
                 .region(aws_config::Region::new(config.cloudwatch.region.clone()))
                 .load()
                 .await;
@@ -169,7 +168,7 @@ impl LogManager {
         &self,
         mut receiver: mpsc::Receiver<LogEntry>,
         buffer: Arc<Mutex<Vec<LogEntry>>>,
-        shutdown: Arc<Mutex<bool>>,
+        shutdown: Arc<AtomicBool>,
     ) {
         let config = self.config.clone();
         let cloudwatch_client = self.cloudwatch_client.clone();
@@ -210,8 +209,8 @@ impl LogManager {
                     
                     // Check shutdown
                     _ = async {
-                        let shutdown_guard = shutdown.lock().await;
-                        *shutdown_guard
+                        let shutdown_guard = shutdown.load(Ordering::Relaxed);
+                        shutdown_guard
                     } => {
                         break;
                     }
@@ -282,22 +281,26 @@ impl LogManager {
                 let json = serde_json::to_string(&event)
                     .map_err(|e| LoggingMonitoringError::JsonSerializationError { message: e.to_string() })?;
                 
-                Ok(InputLogEvent::builder()
+                InputLogEvent::builder()
                     .timestamp(event.timestamp.timestamp_millis())
                     .message(json)
-                    .build())
+                    .build()
+                    .map_err(|e| LoggingMonitoringError::CloudWatchLogFailed { message: e.to_string() })
             })
             .collect::<Result<Vec<_>>>()?;
 
         // Send in batches
         for chunk in log_events.chunks(config.batch_size) {
-            let result = client
+            let mut request = client
                 .put_log_events()
                 .log_group_name(&config.log_group)
-                .log_stream_name(&config.log_stream)
-                .log_events(chunk.to_vec())
-                .send()
-                .await;
+                .log_stream_name(&config.log_stream);
+            
+            for event in chunk {
+                request = request.log_events(event.clone());
+            }
+            
+            let result = request.send().await;
 
             if let Err(e) = result {
                 return Err(LoggingMonitoringError::CloudWatchLogFailed {
@@ -396,7 +399,8 @@ impl LogManager {
     /// Log a structured event
     pub async fn log_structured(&self, level: LogLevel, event: StructuredEvent) -> Result<()> {
         let context = event.context.clone();
-        self.log(level, &event.message, context, Some(event)).await
+        let message = event.message.clone();
+        self.log(level, &message, context, Some(event)).await
     }
 
     /// Log an audit event
@@ -406,13 +410,16 @@ impl LogManager {
             .with_session_id(context.session_id.unwrap_or_default());
 
         // Add audit-specific fields
+        let action_str = action.action.clone();
+        let resource_str = action.resource.clone();
+        
         audit_context.additional_fields.insert(
             "audit_action".to_string(),
-            Value::String(action.action),
+            Value::String(action_str.clone()),
         );
         audit_context.additional_fields.insert(
             "audit_resource".to_string(),
-            Value::String(action.resource),
+            Value::String(resource_str.clone()),
         );
         audit_context.additional_fields.insert(
             "audit_details".to_string(),
@@ -430,7 +437,7 @@ impl LogManager {
         let structured_event = StructuredEvent {
             event_type: "audit".to_string(),
             level: LogLevel::Info,
-            message: format!("Audit: {} on {}", action.action, action.resource),
+            message: format!("Audit: {} on {}", action_str, resource_str),
             context: audit_context.clone(),
             data: audit_context.additional_fields.clone(),
         };
@@ -479,8 +486,7 @@ impl LogManager {
 
     /// Shutdown the log manager
     pub async fn shutdown(&self) -> Result<()> {
-        let mut shutdown_guard = self.shutdown.lock().await;
-        *shutdown_guard = true;
+        self.shutdown.store(true, Ordering::Relaxed);
         Ok(())
     }
 }
@@ -502,11 +508,9 @@ struct StructuredLogEvent {
 
 impl Drop for LogManager {
     fn drop(&mut self) {
-        // Ensure background processing is stopped
-        let _ = tokio::runtime::Handle::current().block_on(async {
-            let mut shutdown_guard = self.shutdown.lock().await;
-            *shutdown_guard = true;
-        });
+        // Set shutdown flag without blocking operations
+        // The background task will check this flag and exit gracefully
+        self.shutdown.store(true, Ordering::Relaxed);
     }
 }
 
