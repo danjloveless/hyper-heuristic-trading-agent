@@ -44,6 +44,12 @@ impl SecretManager {
     pub async fn get_secret(&mut self, secret_name: &str) -> Result<String> {
         debug!("Getting secret: {}", secret_name);
         
+        // Check environment variables first (for development/local use)
+        if let Ok(env_value) = std::env::var(secret_name) {
+            debug!("Found secret in environment variable: {}", secret_name);
+            return Ok(env_value);
+        }
+        
         // Check cache first
         if let Some((cached_value, cached_time)) = self.cache.get(secret_name) {
             let age = chrono::Utc::now() - *cached_time;

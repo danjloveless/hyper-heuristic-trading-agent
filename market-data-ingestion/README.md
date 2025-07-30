@@ -1,463 +1,429 @@
-# QuantumTrade AI Market Data Ingestion Service
+# Market Data Ingestion Service
 
-A high-performance, real-time market data ingestion service built with Rust for the QuantumTrade AI platform. This service collects, validates, and stores financial market data from various sources including Alpha Vantage API.
+A high-performance, production-ready market data ingestion service that collects financial market data from Alpha Vantage API and processes it through a standardized data pipeline.
 
-## 🚀 Features
+## 🏗️ Architecture Overview
 
-- **Intelligent Data Collection**: Avoids redundant API calls by checking data freshness and collecting only incremental data
-- **Real-time Data Collection**: Collects market data from Alpha Vantage API with configurable intervals
-- **High Performance**: Built with Rust for optimal performance and memory efficiency
-- **Data Quality**: Built-in validation, deduplication, and quality checks
-- **Scalable Architecture**: Supports concurrent collections and batch processing
-- **Multiple Environments**: Separate configurations for development, testing, and production
-- **Health Monitoring**: Comprehensive health checks and metrics
-- **Rate Limiting**: Intelligent rate limiting to respect API quotas
-- **Docker Support**: Full containerization with Docker and Docker Compose
-
-## 📋 Prerequisites
-
-- **Rust 1.75+** and Cargo
-- **Docker** and **Docker Compose**
-- **Alpha Vantage API Key** (free tier available)
-- **PowerShell 5.1+**
-
-## 🛠️ Quick Start
-
-### 1. Clone and Setup
-
-```powershell
-# Clone the repository
-git clone <repository-url>
-cd market-data-ingestion
-
-# Run setup script
-.\scripts\setup.ps1
-```
-
-### 2. Configure Environment
-
-```powershell
-# Copy environment file
-Copy-Item env.example .env
-
-# Edit .env and set your API key
-# ALPHA_VANTAGE_API_KEY=your_api_key_here
-```
-
-### 3. Start Development
-
-```powershell
-.\scripts\start-dev.ps1
-```
-
-### 4. Test the Service
-
-```powershell
-.\scripts\test-api.ps1
-```
-
-## 📁 Project Structure
+This service follows the **core infrastructure compliance** pattern with proper dependency injection and standardized interfaces:
 
 ```
-market-data-ingestion/
-├── config/                     # Configuration files
-│   ├── production.toml        # Production settings
-│   ├── development.toml       # Development settings
-│   ├── testing.toml          # Testing settings
-│   └── clickhouse/           # ClickHouse configuration
-├── scripts/                   # Utility scripts
-│   ├── setup.ps1             # Initial setup
-│   ├── start-dev.ps1         # Development startup
-│   ├── test-api.ps1          # API testing
-│   └── benchmark.ps1         # Performance testing
-├── src/                      # Source code
-│   ├── lib.rs               # Library entry point
-│   └── bin/
-│       └── service.rs       # Service binary
-├── tests/                   # Integration tests
-├── examples/                # Usage examples
-├── docker-compose.yml       # Docker services
-├── Dockerfile              # Container definition
-├── Cargo.toml             # Rust dependencies
-└── README.md              # This file
+┌─────────────────────────────────────────────────────────────┐
+│                    Market Data Ingestion                    │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │   Service   │  │  Collector  │  │  Processor  │        │
+│  │             │  │             │  │             │        │
+│  │ • Health    │  │ • API Calls │  │ • Validation│        │
+│  │ • Error     │  │ • Rate      │  │ • Quality   │        │
+│  │   Handling  │  │   Limiting  │  │   Checks    │        │
+│  │ • Metrics   │  │ • Parsing   │  │ • Storage   │        │
+│  └─────────────┘  └─────────────┘  └─────────────┘        │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Core Infrastructure                       │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │   Config    │  │  Database   │  │   Error     │        │
+│  │  Provider   │  │  Manager    │  │  Handler    │        │
+│  └─────────────┘  └─────────────┘  └─────────────┘        │
+│  ┌─────────────┐                                          │
+│  │ Monitoring  │                                          │
+│  │  Provider   │                                          │
+│  └─────────────┘                                          │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## ⚙️ Configuration
+## ✨ Key Features
 
-### Environment Variables
+### 🔧 **Core Infrastructure Integration**
+- **Dependency Injection**: All core infrastructure components properly injected
+- **Standardized Interfaces**: Implements `HealthCheckable`, `ErrorHandler`, etc.
+- **Configuration Management**: Uses `ConfigurationProvider` for all config
+- **Database Integration**: Uses `DatabaseManager` for ClickHouse and Redis
+- **Monitoring Integration**: Records metrics through `MonitoringProvider`
 
-Key environment variables in `.env`:
+### 📊 **Data Processing Pipeline**
+- **Alpha Vantage Integration**: Collects real-time and historical market data
+- **Rate Limiting**: Respects API rate limits with intelligent backoff
+- **Data Validation**: Comprehensive quality checks and validation
+- **Deduplication**: Removes duplicate data points automatically
+- **Caching Strategy**: Intelligent Redis caching for performance
 
-```powershell
-# Required
-ALPHA_VANTAGE_API_KEY=your_api_key_here
+### 🛡️ **Error Handling & Resilience**
+- **Retry Logic**: Automatic retry with exponential backoff
+- **Fallback Mechanisms**: Cache fallback when database fails
+- **Graceful Degradation**: Service continues operating during partial failures
+- **Error Classification**: Intelligent error categorization and handling
 
-# Database
-DATABASE_URL=clickhouse://localhost:8123/quantumtrade
-REDIS_URL=redis://localhost:6379
+### 📈 **Monitoring & Observability**
+- **Health Checks**: Comprehensive component health monitoring
+- **Metrics Collection**: Detailed performance and business metrics
+- **Structured Logging**: Context-aware logging with tracing
+- **Quality Scoring**: Data quality assessment and reporting
 
-# Service
-SERVICE_PORT=8080
-WORKER_THREADS=4
-MAX_CONCURRENT_COLLECTIONS=50
+## 🚀 Quick Start
 
-# Logging
-RUST_LOG=market_data_ingestion=info,service=info
+### Prerequisites
+
+1. **Core Infrastructure**: Ensure core infrastructure components are available
+2. **Database**: ClickHouse and Redis instances running
+3. **API Key**: Alpha Vantage API key configured
+
+### Basic Usage
+
+```rust
+use market_data_ingestion::*;
+use core_traits::*;
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Create core infrastructure components
+    let config_provider = Arc::new(create_config_provider());
+    let database_manager = Arc::new(create_database_manager().await?);
+    let error_handler = Arc::new(create_error_handler());
+    let monitoring = Arc::new(create_monitoring_provider());
+    
+    // 2. Create service with dependency injection
+    let service = market_data_ingestion::create_service(
+        config_provider,
+        database_manager,
+        error_handler,
+        monitoring,
+    ).await?;
+    
+    // 3. Start the service
+    service.start().await?;
+    
+    // 4. Collect market data
+    let result = service.collect_symbol_data("AAPL", Interval::FiveMin).await?;
+    
+    println!("Collected {} data points with quality score {}", 
+             result.processed_count, 
+             result.quality_score.unwrap_or(0));
+    
+    Ok(())
+}
 ```
-
-### Configuration Files
-
-The service uses TOML configuration files for different environments:
-
-- **`config/development.toml`**: Development settings with reduced limits
-- **`config/production.toml`**: Production settings with full capabilities
-- **`config/testing.toml`**: Testing settings with minimal resources
-
-### Key Configuration Sections
-
-#### Service Configuration
-```toml
-[service]
-service_name = "market-data-ingestion"
-port = 8080
-worker_threads = 8
-max_concurrent_collections = 100
-```
-
-#### Alpha Vantage API
-```toml
-[alpha_vantage]
-base_url = "https://www.alphavantage.co/query"
-api_key = "${ALPHA_VANTAGE_API_KEY}"
-timeout_seconds = 30
-max_retries = 5
-```
-
-#### Rate Limiting
-```toml
-[rate_limits]
-calls_per_minute = 75
-calls_per_day = 75000
-is_premium = true
-```
-
-#### Data Collection
-```toml
-[collection]
-default_symbols = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"]
-priority_symbols = ["SPY", "QQQ", "VIX"]
-collection_intervals = ["1min", "5min", "15min", "30min", "1hour", "1day"]
-max_batch_size = 5000
-parallel_collections = 25
-```
-
-## 🐳 Docker Deployment
-
-### Using Docker Compose
-
-```powershell
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f market-data-ingestion
-
-# Stop services
-docker-compose down
-```
-
-### Using Docker
-
-```powershell
-# Build image
-docker build -t market-data-ingestion .
-
-# Run container
-docker run -d `
-  --name market-data-ingestion `
-  -p 8080:8080 `
-  -e ALPHA_VANTAGE_API_KEY=your_key `
-  market-data-ingestion
-```
-
-## 🔌 API Endpoints
-
-### Health and Monitoring
-
-- `GET /health` - Basic health check
-- `GET /health/detailed` - Detailed health information
-- `GET /metrics` - Service metrics
-- `GET /info` - Service information
-
-### Data Collection
-
-- `POST /collect/{symbol}?interval={interval}&force={true|false}` - Collect data for a symbol (intelligent collection)
-- `POST /collect/batch` - Collect data for multiple symbols
-- `GET /collections` - List recent collections
-- `GET /freshness/{symbol}?interval={interval}` - Check data freshness for a symbol
 
 ### Configuration
 
-- `GET /config` - Current configuration
-- `GET /config/symbols` - Configured symbols
+The service uses the `ConfigurationProvider` for all configuration:
 
-### Administrative
+```rust
+// Alpha Vantage configuration
+let alpha_vantage_config = config_provider
+    .get_config_section::<AlphaVantageConfig>("alpha_vantage")
+    .await?;
 
-- `POST /admin/trigger-collection` - Trigger collection for all configured symbols
-- `POST /admin/force-collection/{symbol}` - Force collection for a symbol (bypasses freshness checks)
+// Rate limits configuration  
+let rate_limits_config = config_provider
+    .get_config_section::<RateLimitsConfig>("rate_limits")
+    .await?;
 
-### Examples
+// Collection configuration
+let collection_config = config_provider
+    .get_config_section::<CollectionConfig>("collection")
+    .await?;
+```
 
-```powershell
-# Health check
-Invoke-RestMethod -Uri "http://localhost:8080/health"
+## 📋 API Reference
 
-# Collect data for AAPL
-Invoke-RestMethod -Uri "http://localhost:8080/collect/AAPL?interval=5min" -Method POST
+### Core Service
 
-# Get service info
-Invoke-RestMethod -Uri "http://localhost:8080/info"
+#### `MarketDataIngestionService`
 
-# Get metrics
-Invoke-RestMethod -Uri "http://localhost:8080/metrics"
+The main service that orchestrates data collection and processing.
+
+```rust
+impl MarketDataIngestionService {
+    /// Create a new service with dependency injection
+    pub async fn new(
+        config_provider: Arc<dyn ConfigurationProvider>,
+        database_manager: Arc<DatabaseManager>,
+        error_handler: Arc<dyn ErrorHandler>,
+        monitoring: Arc<dyn MonitoringProvider>,
+    ) -> ServiceResult<Self>
+    
+    /// Start the service and background tasks
+    pub async fn start(&self) -> ServiceResult<()>
+    
+    /// Collect market data for a specific symbol
+    pub async fn collect_symbol_data(
+        &self, 
+        symbol: &str, 
+        interval: Interval
+    ) -> ServiceResult<CollectionResult>
+}
+```
+
+#### `Interval`
+
+Supported data collection intervals:
+
+```rust
+pub enum Interval {
+    OneMin,      // 1 minute
+    FiveMin,     // 5 minutes  
+    FifteenMin,  // 15 minutes
+    ThirtyMin,   // 30 minutes
+    SixtyMin,    // 1 hour
+    Daily,       // Daily
+}
+```
+
+#### `CollectionResult`
+
+Result of a data collection operation:
+
+```rust
+pub struct CollectionResult {
+    pub symbol: String,
+    pub interval: Interval,
+    pub collected_count: usize,    // Raw data points collected
+    pub processed_count: usize,    // Data points after processing
+    pub cached_count: usize,       // Data points from cache
+    pub collection_time: DateTime<Utc>,
+    pub processing_duration_ms: u64,
+    pub batch_id: String,
+    pub source: DataSource,
+    pub quality_score: Option<u8>, // 0-100 quality score
+}
+```
+
+### Health Checks
+
+The service implements the `HealthCheckable` trait:
+
+```rust
+// Check overall service health
+let health = service.health_check().await;
+println!("Service status: {:?}", health.status);
+
+// Check if service is ready to handle requests
+let readiness = service.ready_check().await;
+match readiness {
+    ReadinessStatus::Ready => println!("Service is ready"),
+    ReadinessStatus::NotReady { reason } => println!("Service not ready: {}", reason),
+}
+```
+
+## 🔧 Configuration
+
+### Alpha Vantage Configuration
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlphaVantageConfig {
+    pub base_url: String,           // API base URL
+    pub timeout_seconds: u64,       // Request timeout
+    pub max_retries: u32,           // Maximum retry attempts
+    pub default_output_size: String, // "compact" or "full"
+}
+```
+
+### Rate Limits Configuration
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitsConfig {
+    pub calls_per_minute: u32,  // API calls per minute
+    pub calls_per_day: u32,     // API calls per day
+    pub is_premium: bool,       // Premium API tier
+    pub burst_allowance: u32,   // Burst allowance
+}
+```
+
+### Data Quality Configuration
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataQualityConfig {
+    pub min_quality_score: u8,              // Minimum acceptable quality (0-100)
+    pub enable_validation: bool,            // Enable data validation
+    pub max_price_deviation_percent: f64,   // Max price change allowed
+    pub min_volume_threshold: u64,          // Minimum volume threshold
+    pub enable_deduplication: bool,         // Enable duplicate removal
+}
 ```
 
 ## 🧪 Testing
 
-### Run Tests
+### Running Tests
 
-```powershell
-# Unit tests
+```bash
+# Run all tests
 cargo test
 
-# Integration tests
+# Run integration tests
 cargo test --test integration_tests
 
-# Performance tests
-cargo test --release test_performance
+# Run with logging
+RUST_LOG=debug cargo test
 ```
 
-### API Testing
+### Test Examples
 
-```powershell
-.\scripts\test-api.ps1
-```
+```rust
+#[tokio::test]
+async fn test_data_collection() {
+    // Setup mock infrastructure
+    let service = create_test_service().await;
+    
+    // Test data collection
+    let result = service.collect_symbol_data("AAPL", Interval::FiveMin).await
+        .expect("Collection should succeed");
+    
+    assert!(result.processed_count > 0);
+    assert!(result.quality_score.unwrap_or(0) > 70);
+}
 
-### Performance Benchmarking
-
-```powershell
-.\scripts\benchmark.ps1
-```
-
-## 📊 Monitoring and Metrics
-
-The service provides comprehensive monitoring:
-
-### Health Checks
-- Service health status
-- Database connectivity
-- API key validity
-- Rate limit status
-
-### Metrics
-- Data points collected
-- Collection success rate
-- Processing time
-- Error rates
-- Memory usage
-
-### Logging
-- Structured logging with different levels
-- Request/response logging
-- Error tracking
-- Performance metrics
-
-## 🧠 Intelligent Data Collection
-
-The service implements intelligent data collection that minimizes API calls and optimizes data freshness:
-
-### How It Works
-
-1. **Data Freshness Check**: Before making an API call, the service checks the latest timestamp in the database
-2. **Freshness Thresholds**: Different intervals have different freshness thresholds:
-   - 1-minute data: 2 minutes
-   - 5-minute data: 7 minutes  
-   - 15-minute data: 20 minutes
-   - 30-minute data: 35 minutes
-   - 1-hour data: 65 minutes
-3. **Incremental Collection**: Only fetches data points newer than the latest timestamp
-4. **Skip Logic**: If data is fresh, the API call is skipped entirely
-
-### API Usage
-
-```powershell
-# Normal collection (uses intelligent logic)
-Invoke-RestMethod -Uri "http://localhost:8080/collect/AAPL?interval=5min" -Method POST
-
-# Force collection (bypasses freshness checks)
-Invoke-RestMethod -Uri "http://localhost:8080/collect/AAPL?interval=5min&force=true" -Method POST
-
-# Check data freshness
-Invoke-RestMethod -Uri "http://localhost:8080/freshness/AAPL?interval=5min"
-```
-
-### Example Response
-
-```json
-{
-  "success": true,
-  "message": "Data for AAPL is fresh, no new data collected",
-  "data_points_collected": 0,
-  "processing_time_ms": 15,
-  "batch_id": "batch_123",
-  "skip_reason": "data_fresh",
-  "latest_timestamp": "2024-01-15T16:00:00Z",
-  "force_collection": null
+#[tokio::test]
+async fn test_error_handling() {
+    // Test error scenarios
+    let service = create_test_service_with_errors().await;
+    
+    let result = service.collect_symbol_data("INVALID", Interval::FiveMin).await;
+    
+    // Should handle errors gracefully
+    assert!(result.is_err());
 }
 ```
 
-### Benefits
+## 📊 Monitoring & Metrics
 
-- **Reduced API Costs**: Minimizes redundant API calls
-- **Better Performance**: Faster response times for fresh data
-- **Rate Limit Optimization**: Respects API rate limits more effectively
-- **Data Consistency**: Ensures data continuity without gaps
+### Key Metrics
 
-## 🔧 Development
+The service records comprehensive metrics:
 
-### Building
+- **`data_collection_attempts`**: Number of collection attempts
+- **`data_collection_duration`**: Time taken for data collection
+- **`data_points_collected`**: Number of data points collected
+- **`data_points_stored`**: Number of data points stored in database
+- **`data_quality_failures`**: Number of data quality failures
+- **`alpha_vantage_api_errors`**: API error counts
+- **`average_data_quality`**: Average quality score of collected data
 
-```powershell
-# Debug build
-cargo build
+### Health Checks
 
-# Release build
-cargo build --release
+The service provides detailed health checks for:
 
-# Specific binary
-cargo build --bin market-data-service
+- **ClickHouse Database**: Connection and query health
+- **Redis Cache**: Connection and operation health  
+- **Alpha Vantage API**: API connectivity and response health
+
+### Logging
+
+Structured logging with context:
+
+```rust
+// Info level for normal operations
+info!("Successfully collected {} data points for {}", count, symbol);
+
+// Warn level for recoverable issues
+warn!("Data quality check failed for {} (score: {})", symbol, score);
+
+// Error level for failures
+error!("Failed to collect data for {}: {:?}", symbol, error);
 ```
 
-### Running
+## 🔒 Security Considerations
 
-```powershell
-# Development mode
-cargo run --bin market-data-service -- --config config/development.toml
+### API Key Management
 
-# Production mode
-cargo run --release --bin market-data-service -- --config config/production.toml
+- Store Alpha Vantage API key in secure configuration provider
+- Never log API keys
+- Rotate keys regularly
+- Use environment variables for local development
+
+### Data Validation
+
+- Validate all incoming data before processing
+- Sanitize data before storage
+- Implement rate limiting to prevent abuse
+- Monitor for suspicious activity patterns
+
+## 🚀 Deployment
+
+### Environment Variables
+
+```bash
+# Database configuration
+CLICKHOUSE_URL=http://localhost:8123
+CLICKHOUSE_DATABASE=quantumtrade
+REDIS_URL=redis://localhost:6379
+
+# API configuration
+ALPHA_VANTAGE_API_KEY=your_api_key_here
+
+# Logging
+RUST_LOG=info
 ```
 
-### Adding New Features
+### Docker Deployment
 
-1. **Configuration**: Add new settings to TOML files
-2. **API Endpoints**: Add handlers in `src/bin/service.rs`
-3. **Data Processing**: Extend the library in `src/lib.rs`
-4. **Tests**: Add unit and integration tests
-5. **Documentation**: Update README and API docs
+```dockerfile
+FROM rust:1.70 as builder
+WORKDIR /app
+COPY . .
+RUN cargo build --release
 
-## 🚨 Troubleshooting
-
-### Common Issues
-
-1. **Docker not running**
-   ```powershell
-   # Check Docker status
-   docker info
-   
-   # Start Docker Desktop
-   # Or start Docker service
-   Start-Service docker
-   ```
-
-2. **Port conflicts**
-   ```powershell
-   # Check port usage
-   netstat -an | Select-String "8080"
-   
-   # Kill process using port
-   Get-NetTCPConnection -LocalPort 8080 | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-   ```
-
-3. **API key issues**
-   ```powershell
-   # Verify API key
-   Invoke-RestMethod -Uri "https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=AAPL&interval=5min&apikey=YOUR_KEY"
-   ```
-
-4. **Database connection issues**
-   ```powershell
-   # Check ClickHouse
-   Invoke-RestMethod -Uri "http://localhost:8123/?query=SELECT%201"
-   
-   # Check Redis
-   docker exec (docker-compose ps -q redis) redis-cli ping
-   ```
-
-### Debug Mode
-
-```powershell
-# Enable debug logging
-$env:RUST_LOG="market_data_ingestion=debug"; cargo run
-
-# Verbose Docker logs
-docker-compose logs -f --tail=100 market-data-ingestion
+FROM debian:bullseye-slim
+COPY --from=builder /app/target/release/market-data-ingestion /usr/local/bin/
+CMD ["market-data-ingestion"]
 ```
 
-## 📈 Performance
+### Production Considerations
 
-### Benchmarks
-
-The service is optimized for high-performance data ingestion:
-
-- **Throughput**: Up to 10,000 data points/second
-- **Latency**: < 100ms average response time
-- **Memory**: < 512MB typical usage
-- **Concurrency**: Supports 100+ concurrent collections
-
-### Optimization Tips
-
-1. **Use release builds** for production
-2. **Adjust worker threads** based on CPU cores
-3. **Configure batch sizes** for optimal throughput
-4. **Monitor memory usage** and adjust limits
-5. **Use connection pooling** for database connections
+1. **Resource Limits**: Set appropriate CPU and memory limits
+2. **Health Checks**: Configure health check endpoints
+3. **Monitoring**: Set up metrics collection and alerting
+4. **Backup**: Ensure database backups are configured
+5. **Scaling**: Consider horizontal scaling for high throughput
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Update documentation
-6. Submit a pull request
+### Development Setup
 
-### Code Style
+1. **Clone the repository**
+2. **Install dependencies**: `cargo build`
+3. **Set up databases**: Start ClickHouse and Redis
+4. **Configure environment**: Set required environment variables
+5. **Run tests**: `cargo test`
 
-- Follow Rust conventions
-- Use meaningful variable names
-- Add comments for complex logic
-- Include error handling
-- Write comprehensive tests
+### Code Standards
+
+- Follow Rust coding conventions
+- Implement comprehensive tests
+- Use proper error handling
+- Document public APIs
+- Follow the core infrastructure patterns
+
+### Testing Guidelines
+
+- Write unit tests for all components
+- Include integration tests for end-to-end scenarios
+- Test error conditions and edge cases
+- Use mocks for external dependencies
+- Maintain high test coverage
+
+## 📚 Examples
+
+See the `examples/` directory for complete usage examples:
+
+- **`complete_integration.rs`**: Full integration example with mock infrastructure
+- **Error handling examples**: Various error scenarios and recovery patterns
+- **Configuration examples**: Different configuration setups
+
+## 🔗 Related Documentation
+
+- [Core Infrastructure Documentation](../docs/)
+- [Database Abstraction Layer](../shared-libs/database-abstraction/)
+- [Shared Types](../shared-libs/shared-types/)
+- [Core Traits](../shared-libs/core-traits/)
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🆘 Support
-
-- **Documentation**: Check this README and inline code comments
-- **Issues**: Create an issue on GitHub
-- **Discussions**: Use GitHub Discussions for questions
-- **Email**: Contact the development team
-
-## 🔗 Related Projects
-
-- **QuantumTrade AI Platform**: Main trading platform
-- **Database Abstraction Layer**: Shared database utilities
-- **Configuration Management**: Centralized configuration service
-- **Logging & Monitoring**: Unified logging and metrics
-
----
-
-**Note**: This service is part of the QuantumTrade AI platform. For complete platform documentation, see the main project repository.
+This project is part of the QuantumTrade AI system and follows the same licensing terms. 

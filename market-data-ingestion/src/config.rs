@@ -1,46 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MarketDataIngestionConfig {
-    pub service: ServiceConfig,
-    pub alpha_vantage: AlphaVantageConfig,
-    pub rate_limits: RateLimitsConfig,
-    pub collection: CollectionConfig,
-    pub data_quality: DataQualityConfig,
-    pub storage: StorageConfig,
-}
-
-impl Default for MarketDataIngestionConfig {
-    fn default() -> Self {
-        Self {
-            service: ServiceConfig::default(),
-            alpha_vantage: AlphaVantageConfig::default(),
-            rate_limits: RateLimitsConfig::default(),
-            collection: CollectionConfig::default(),
-            data_quality: DataQualityConfig::default(),
-            storage: StorageConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServiceConfig {
-    pub service_name: String,
-    pub port: u16,
-    pub worker_threads: usize,
-    pub max_concurrent_collections: usize,
-}
-
-impl Default for ServiceConfig {
-    fn default() -> Self {
-        Self {
-            service_name: "market-data-ingestion".to_string(),
-            port: 8080,
-            worker_threads: 4,
-            max_concurrent_collections: 50,
-        }
-    }
-}
+// ================================================================================================
+// SERVICE CONFIGURATION STRUCTURES
+// ================================================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlphaVantageConfig {
@@ -48,15 +10,17 @@ pub struct AlphaVantageConfig {
     pub api_key: String,
     pub timeout_seconds: u64,
     pub max_retries: u32,
+    pub default_output_size: String,
 }
 
 impl Default for AlphaVantageConfig {
     fn default() -> Self {
         Self {
             base_url: "https://www.alphavantage.co/query".to_string(),
-            api_key: std::env::var("ALPHA_VANTAGE_API_KEY").unwrap_or_default(),
+            api_key: "YOUR_API_KEY".to_string(), // Placeholder for actual API key
             timeout_seconds: 30,
             max_retries: 3,
+            default_output_size: "compact".to_string(),
         }
     }
 }
@@ -65,19 +29,17 @@ impl Default for AlphaVantageConfig {
 pub struct RateLimitsConfig {
     pub calls_per_minute: u32,
     pub calls_per_day: u32,
-    pub premium_calls_per_minute: u32,
-    pub premium_calls_per_day: u32,
     pub is_premium: bool,
+    pub burst_allowance: u32,
 }
 
 impl Default for RateLimitsConfig {
     fn default() -> Self {
         Self {
-            calls_per_minute: 5,
-            calls_per_day: 500,
-            premium_calls_per_minute: 75,
-            premium_calls_per_day: 75000,
+            calls_per_minute: 5,    // Free tier limit
+            calls_per_day: 500,     // Free tier limit
             is_premium: false,
+            burst_allowance: 2,
         }
     }
 }
@@ -86,9 +48,9 @@ impl Default for RateLimitsConfig {
 pub struct CollectionConfig {
     pub default_symbols: Vec<String>,
     pub priority_symbols: Vec<String>,
-    pub collection_intervals: Vec<String>,
-    pub max_batch_size: usize,
-    pub parallel_collections: usize,
+    pub batch_size: usize,
+    pub concurrent_collections: usize,
+    pub data_quality: DataQualityConfig,
 }
 
 impl Default for CollectionConfig {
@@ -96,7 +58,7 @@ impl Default for CollectionConfig {
         Self {
             default_symbols: vec![
                 "AAPL".to_string(),
-                "GOOGL".to_string(),
+                "GOOGL".to_string(), 
                 "MSFT".to_string(),
                 "AMZN".to_string(),
                 "TSLA".to_string(),
@@ -104,55 +66,31 @@ impl Default for CollectionConfig {
             priority_symbols: vec![
                 "SPY".to_string(),
                 "QQQ".to_string(),
-                "IWM".to_string(),
             ],
-            collection_intervals: vec![
-                "1min".to_string(),
-                "5min".to_string(),
-                "15min".to_string(),
-                "1hour".to_string(),
-                "1day".to_string(),
-            ],
-            max_batch_size: 1000,
-            parallel_collections: 10,
+            batch_size: 100,
+            concurrent_collections: 5,
+            data_quality: DataQualityConfig::default(),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]  
 pub struct DataQualityConfig {
-    pub quality_threshold: u8,
+    pub min_quality_score: u8,
+    pub enable_validation: bool,
+    pub max_price_deviation_percent: f64,
+    pub min_volume_threshold: u64,
     pub enable_deduplication: bool,
-    pub max_price_deviation: f64,
-    pub volume_threshold: u64,
 }
 
 impl Default for DataQualityConfig {
     fn default() -> Self {
         Self {
-            quality_threshold: 70,
+            min_quality_score: 70,
+            enable_validation: true,
+            max_price_deviation_percent: 10.0,
+            min_volume_threshold: 1000,
             enable_deduplication: true,
-            max_price_deviation: 0.1, // 10% max deviation
-            volume_threshold: 1000,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageConfig {
-    pub batch_size: usize,
-    pub flush_interval_seconds: u64,
-    pub enable_compression: bool,
-    pub retention_days: u32,
-}
-
-impl Default for StorageConfig {
-    fn default() -> Self {
-        Self {
-            batch_size: 1000,
-            flush_interval_seconds: 30,
-            enable_compression: true,
-            retention_days: 365,
         }
     }
 } 

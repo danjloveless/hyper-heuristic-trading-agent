@@ -5,15 +5,15 @@ edition = "2021"
 
 [dependencies]
 # Workspace dependencies
-tokio = { workspace = true }
-async-trait = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 uuid = { workspace = true }
-chrono = { workspace = true }
-thiserror = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1.0"
 anyhow = { workspace = true }
-tracing = { workspace = true }
+tracing = "0.1"
 config = { workspace = true }
 rust_decimal = { workspace = true }
 
@@ -28,12 +28,13 @@ aws-sdk-s3 = "1.0"
 
 # Utilities
 futures = "0.3"
-dashmap = "5.5"
+dashmap = "5.0"
 crossbeam-channel = "0.5"
 once_cell = "1.19"
 parking_lot = "0.12"
 tokio-stream = "0.1"
-notify = "6.1"
+notify = "6.0"
+dotenv = "0.15"
 
 # Validation
 validator = { version = "0.16", features = ["derive"] }

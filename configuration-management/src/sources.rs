@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 use tracing::{debug, error};
+use std::path::Path;
 
 pub type Result<T> = std::result::Result<T, ConfigurationError>;
 
@@ -238,6 +239,129 @@ impl ConfigSource for FileSource {
     
     fn get_source_name(&self) -> &str {
         "file"
+    }
+}
+
+// DotEnv Source
+pub struct DotEnvSource {
+    file_path: String,
+}
+
+impl DotEnvSource {
+    pub fn new(file_path: String) -> Self {
+        Self { file_path }
+    }
+    
+    fn parse_env_file(&self) -> Result<HashMap<String, String>> {
+        let content = std::fs::read_to_string(&self.file_path)
+            .map_err(|e| ConfigurationError::ConfigNotFound {
+                key: format!("env_file: {}", self.file_path),
+            })?;
+        
+        let mut env_vars = HashMap::new();
+        
+        for line in content.lines() {
+            let line = line.trim();
+            
+            // Skip empty lines and comments
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            
+            // Parse key=value pairs
+            if let Some(equal_pos) = line.find('=') {
+                let key = line[..equal_pos].trim();
+                let value = line[equal_pos + 1..].trim();
+                
+                // Remove quotes if present
+                let value = if (value.starts_with('"') && value.ends_with('"')) || 
+                               (value.starts_with('\'') && value.ends_with('\'')) {
+                    &value[1..value.len() - 1]
+                } else {
+                    value
+                };
+                
+                if !key.is_empty() {
+                    env_vars.insert(key.to_string(), value.to_string());
+                }
+            }
+        }
+        
+        Ok(env_vars)
+    }
+}
+
+#[async_trait]
+impl ConfigSource for DotEnvSource {
+    async fn load_config(&self, key: &str) -> Result<Value> {
+        debug!("Loading config from .env file: {}", key);
+        
+        let env_vars = self.parse_env_file()?;
+        
+        if let Some(value) = env_vars.get(key) {
+            // Try to parse as JSON first, fallback to string
+            if let Ok(json_value) = serde_json::from_str::<Value>(value) {
+                Ok(json_value)
+            } else {
+                Ok(Value::String(value.clone()))
+            }
+        } else {
+            Err(ConfigurationError::ConfigNotFound {
+                key: key.to_string(),
+            })
+        }
+    }
+    
+    async fn get_all_configs(&self, prefix: &str) -> Result<HashMap<String, Value>> {
+        debug!("Getting all configs from .env file with prefix: {}", prefix);
+        
+        let env_vars = self.parse_env_file()?;
+        let mut configs = HashMap::new();
+        
+        for (key, value) in env_vars {
+            if key.starts_with(prefix) {
+                // Try to parse as JSON first, fallback to string
+                if let Ok(json_value) = serde_json::from_str::<Value>(&value) {
+                    configs.insert(key, json_value);
+                } else {
+                    configs.insert(key, Value::String(value));
+                }
+            }
+        }
+        
+        Ok(configs)
+    }
+    
+    async fn set_config(&self, _key: &str, _value: Value) -> Result<()> {
+        Err(ConfigurationError::Internal {
+            message: ".env files are read-only".to_string(),
+        })
+    }
+    
+    async fn delete_config(&self, _key: &str) -> Result<()> {
+        Err(ConfigurationError::Internal {
+            message: ".env files are read-only".to_string(),
+        })
+    }
+    
+    async fn list_configs(&self, prefix: &str) -> Result<Vec<String>> {
+        debug!("Listing configs from .env file with prefix: {}", prefix);
+        
+        let env_vars = self.parse_env_file()?;
+        let keys: Vec<String> = env_vars.keys()
+            .filter(|key| key.starts_with(prefix))
+            .cloned()
+            .collect();
+        
+        Ok(keys)
+    }
+    
+    fn supports_writes(&self) -> bool {
+        false
+    }
+    
+    fn get_source_name(&self) -> &str {
+        "dotenv"
     }
 }
 

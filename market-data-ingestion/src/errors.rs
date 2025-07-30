@@ -1,41 +1,75 @@
 use thiserror::Error;
-use serde::{Deserialize, Serialize};
 
-/// Result type for market data ingestion
-pub type Result<T> = std::result::Result<T, IngestionError>;
-
-#[derive(Error, Debug, Clone, Serialize, Deserialize)]
+#[derive(Error, Debug, Clone)]
 pub enum IngestionError {
-    #[error("Alpha Vantage API error: {message}")]
-    ApiError { message: String, status_code: u16 },
+    #[error("Alpha Vantage API error: {message} (status: {status_code:?})")]
+    AlphaVantageApi {
+        message: String,
+        status_code: Option<u16>,
+    },
     
-    #[error("Rate limit exceeded: {limit_type}")]
-    RateLimitExceeded { limit_type: String },
+    #[error("Rate limit exceeded: {service}. Retry after: {retry_after:?}")]
+    RateLimit {
+        service: String,
+        retry_after: Option<std::time::Duration>,
+    },
     
-    #[error("Data quality below threshold: {score} < {threshold}")]
-    QualityBelowThreshold { score: u8, threshold: u8 },
+    #[error("Data parsing error in field '{field}': {message}")]
+    DataParsing {
+        field: String,
+        message: String,
+    },
     
-    #[error("Symbol not found: {symbol}")]
-    SymbolNotFound { symbol: String },
+    #[error("Data quality check failed: {reason} (score: {quality_score})")]
+    DataQuality {
+        reason: String,
+        quality_score: u8,
+    },
     
-    #[error("Data parsing error: {field} - {error}")]
-    ParsingError { field: String, error: String },
+    #[error("Configuration error: {message}")]
+    Configuration {
+        message: String,
+    },
     
-    #[error("Storage error: {operation}")]
-    StorageError { operation: String },
-    
-    #[error("Configuration error: {parameter}")]
-    ConfigurationError { parameter: String },
-    
-    #[error("Deduplication error: {message}")]
-    DeduplicationError { message: String },
-    
-    #[error("Batch processing error: {batch_id}")]
-    BatchProcessingError { batch_id: String },
-    
-    #[error("Authentication failed: {reason}")]
-    AuthenticationFailed { reason: String },
-    
-    #[error("Request timeout: {timeout_ms}ms")]
-    RequestTimeout { timeout_ms: u64 },
+    #[error("Storage error: {message}")]
+    Storage {
+        message: String,
+    },
+}
+
+impl From<IngestionError> for core_traits::ServiceError {
+    fn from(err: IngestionError) -> Self {
+        match err {
+            IngestionError::AlphaVantageApi { message, status_code } => {
+                core_traits::ServiceError::ExternalApi {
+                    api: "alpha_vantage".to_string(),
+                    message,
+                    status_code,
+                }
+            }
+            IngestionError::RateLimit { service, retry_after } => {
+                core_traits::ServiceError::RateLimit { service, retry_after }
+            }
+            IngestionError::DataQuality { reason, quality_score } => {
+                core_traits::ServiceError::DataQuality {
+                    message: reason,
+                    quality_score,
+                }
+            }
+            IngestionError::Configuration { message } => {
+                core_traits::ServiceError::Configuration { message }
+            }
+            IngestionError::Storage { message } => {
+                core_traits::ServiceError::Database {
+                    message,
+                    retryable: true,
+                }
+            }
+            IngestionError::DataParsing { field, message } => {
+                core_traits::ServiceError::System {
+                    message: format!("Data parsing error in {}: {}", field, message),
+                }
+            }
+        }
+    }
 } 
