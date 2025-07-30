@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- QuantumTrade Database Configuration -->
+    
+    <!-- Database settings -->
+    <database>
+        <name>quantumtrade</name>
+        <engine>Atomic</engine>
+    </database>
+    
+    <!-- Table settings for market data -->
+    <table>
+        <name>market_data</name>
+        <engine>MergeTree</engine>
+        <partition_by>toYYYYMM(timestamp)</partition_by>
+        <order_by>(symbol, timestamp)</order_by>
+        <primary_key>(symbol, timestamp)</primary_key>
+        <settings>
+            <index_granularity>8192</index_granularity>
+            <enable_mixed_granularity_parts>1</enable_mixed_granularity_parts>
+        </settings>
+    </table>
+    
+    <!-- Performance settings -->
+    <max_memory_usage>8589934592</max_memory_usage> <!-- 8GB -->
+    <max_memory_usage_for_user>6442450944</max_memory_usage_for_user> <!-- 6GB -->
+    <max_concurrent_queries>100</max_concurrent_queries>
+    <max_threads>8</max_threads>
+    
+    <!-- Storage settings -->
+    <path>/var/lib/clickhouse/</path>
+    <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+    <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
+    
+    <!-- Logging -->
+    <logger>
+        <level>information</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>1000M</size>
+        <count>10</count>
+    </logger>
+    
+    <!-- HTTP settings -->
+    <http_port>8123</http_port>
+    <tcp_port>9000</tcp_port>
+    <interserver_http_port>9009</interserver_http_port>
+    
+    <!-- User settings -->
+    <users_config>users.xml</users_config>
+    <default_profile>default</default_profile>
+    <default_database>quantumtrade</default_database>
+    
+    <!-- Timezone -->
+    <timezone>UTC</timezone>
+    
+    <!-- Compression settings -->
+    <compression>
+        <case>
+            <method>zstd</method>
+            <level>3</level>
+        </case>
+    </compression>
+</clickhouse> 

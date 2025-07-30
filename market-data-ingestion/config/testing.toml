@@ -1,0 +1,39 @@
+# Testing configuration for Market Data Ingestion Service
+
+[service]
+service_name = "market-data-ingestion-test"
+port = 8081
+worker_threads = 1
+max_concurrent_collections = 5
+
+[alpha_vantage]
+base_url = "http://localhost:8080"  # Mock server in tests
+api_key = "test_api_key"
+timeout_seconds = 5
+max_retries = 1
+
+[rate_limits]
+calls_per_minute = 10
+calls_per_day = 100
+premium_calls_per_minute = 50
+premium_calls_per_day = 1000
+is_premium = false
+
+[collection]
+default_symbols = ["AAPL", "GOOGL"]
+priority_symbols = ["SPY"]
+collection_intervals = ["5min", "1hour"]
+max_batch_size = 10
+parallel_collections = 2
+
+[data_quality]
+quality_threshold = 50  # Lower threshold for testing
+enable_deduplication = true
+max_price_deviation = 0.5  # Very lenient for test data
+volume_threshold = 100
+
+[storage]
+batch_size = 10
+flush_interval_seconds = 5
+enable_compression = false
+retention_days = 1 

@@ -1,0 +1,124 @@
+[package]
+name = "market-data-ingestion"
+version = "0.1.0"
+edition = "2021"
+authors = ["QuantumTrade AI Team"]
+description = "Market data ingestion module for QuantumTrade AI - Alpha Vantage API integration with validation"
+license = "MIT"
+repository = "https://github.com/your-org/quantumtrade-ai"
+keywords = ["trading", "market-data", "alpha-vantage", "ingestion", "financial"]
+categories = ["finance", "web-programming::http-client", "asynchronous"]
+
+[dependencies]
+# Async runtime and traits
+async-trait = "0.1"
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
+
+# HTTP client and serialization
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Date/time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Decimal precision for financial data
+rust_decimal = { version = "1.0", features = ["serde"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# UUID generation
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Concurrency
+parking_lot = "0.12"
+dashmap = "5.0"
+
+# Configuration
+config = "0.14"
+toml = "0.8"
+dotenv = "0.15"
+
+# Web framework and HTTP
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "timeout"] }
+
+# CLI argument parsing
+clap = { version = "4.0", features = ["derive"] }
+
+# Internal dependencies (assuming these are available as workspace members)
+database-abstraction = { path = "../shared-libs/database-abstraction" }
+configuration-management = { path = "../configuration-management" }
+error-handling = { path = "../error-handling" }
+logging-monitoring = { path = "../logging-monitoring" }
+
+# Shared types
+shared-types = { path = "../shared-libs/shared-types" }
+
+[dev-dependencies]
+tokio-test = "0.4"
+wiremock = "0.6"
+tempfile = "3.0"
+mockall = "0.12"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[features]
+default = ["local"]
+local = []
+aws = ["aws-sdk-s3", "aws-sdk-secretsmanager"]
+
+# Optional AWS dependencies
+[dependencies.aws-sdk-s3]
+version = "1.0"
+optional = true
+
+[dependencies.aws-sdk-secretsmanager]
+version = "1.0"
+optional = true
+
+[[example]]
+name = "basic_collection"
+path = "examples/basic_collection.rs"
+
+[[example]]
+name = "rate_limit_demo"
+path = "examples/rate_limit_demo.rs"
+
+[[example]]
+name = "batch_processing"
+path = "examples/batch_processing.rs"
+
+[[example]]
+name = "data_quality_validation"
+path = "examples/data_quality_validation.rs"
+
+[[bin]]
+name = "market-data-service"
+path = "src/bin/service.rs"
+
+[lib]
+name = "market_data_ingestion"
+path = "src/lib.rs"
+
+# [[bench]]
+# name = "ingestion_performance"
+# harness = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true

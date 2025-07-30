@@ -4,7 +4,8 @@ members = [
     "shared-libs/shared-types",
     "configuration-management",
     "logging-monitoring",
-    "error-handling"
+    "error-handling",
+    "market-data-ingestion",
 ]
 resolver = "2"
 
