@@ -100,8 +100,10 @@ struct ApiError {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load environment variables from .env file
-    dotenv::dotenv().ok();
+    // Load environment variables from .env file (check current dir and parent dir)
+    if dotenv::dotenv().is_err() {
+        dotenv::from_filename("../.env").ok();
+    }
     
     // Parse command line arguments
     let matches = create_cli().get_matches();

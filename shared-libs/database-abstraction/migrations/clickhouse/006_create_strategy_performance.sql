@@ -13,18 +13,3 @@ CREATE TABLE IF NOT EXISTS strategy_performance (
 PARTITION BY (strategy_name, toYYYYMM(timestamp))
 ORDER BY (strategy_name, symbol, timestamp)
 SETTINGS index_granularity = 8192;
-
--- Create materialized view for strategy rankings
-CREATE MATERIALIZED VIEW IF NOT EXISTS strategy_rankings
-ENGINE = AggregatingMergeTree()
-PARTITION BY toYYYYMM(timestamp)
-ORDER BY (strategy_name, timestamp)
-AS SELECT
-    strategy_name,
-    toStartOfMonth(timestamp) as timestamp,
-    avgState(accuracy_rate) as avg_accuracy,
-    avgState(sharpe_ratio) as avg_sharpe,
-    maxState(profit_loss) as max_profit,
-    minState(max_drawdown) as min_drawdown
-FROM strategy_performance
-GROUP BY strategy_name, timestamp;

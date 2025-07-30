@@ -123,6 +123,7 @@ struct MarketDataRow {
     close: f64,
     volume: u64,
     adjusted_close: f64,
+    ingestion_timestamp: DateTime<Utc>,
 }
 
 #[derive(Row, serde::Deserialize, serde::Serialize)]
@@ -334,6 +335,7 @@ impl DatabaseClient for ClickHouseClient {
                 close: item.close.to_f64().unwrap_or(0.0),
                 volume: item.volume,
                 adjusted_close: item.adjusted_close.to_f64().unwrap_or(0.0),
+                ingestion_timestamp: Utc::now(),
             }).await?;
         }
         

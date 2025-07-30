@@ -13,6 +13,3 @@ CREATE TABLE IF NOT EXISTS predictions (
 PARTITION BY (symbol, toYYYYMM(timestamp))
 ORDER BY (symbol, timestamp, prediction_id)
 SETTINGS index_granularity = 8192;
-
--- Create index for faster prediction ID lookups
-ALTER TABLE predictions ADD INDEX idx_prediction_id prediction_id TYPE bloom_filter(0.01) GRANULARITY 1;
