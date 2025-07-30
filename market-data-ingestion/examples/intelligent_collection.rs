@@ -13,9 +13,13 @@ use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
 use async_trait::async_trait;
+use dotenv;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load environment variables from .env file
+    dotenv::dotenv().ok();
+    
     // Initialize logging
     tracing_subscriber::fmt::init();
     

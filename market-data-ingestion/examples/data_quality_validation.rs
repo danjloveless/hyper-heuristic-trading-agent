@@ -10,10 +10,14 @@ use std::sync::Arc;
 use tracing::{info, warn, error};
 use tracing_subscriber;
 use async_trait::async_trait;
+use dotenv;
 
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load environment variables from .env file
+    dotenv::dotenv().ok();
+    
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter("market_data_ingestion=info,data_quality_validation=debug")

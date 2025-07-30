@@ -5,8 +5,10 @@ use market_data_ingestion::{
     MarketDataIngestionService, MarketDataIngestionConfig,
     Interval, HealthStatus, IngestionMetrics,
 };
-use database_abstraction::DatabaseClient;
+use database_abstraction::{DatabaseClient, DatabaseManager, DatabaseConfig};
 use shared_types;
+use dotenv;
+use async_trait;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -241,88 +243,40 @@ fn validate_environment(config: &MarketDataIngestionConfig) -> Result<(), Box<dy
     Ok(())
 }
 
-async fn initialize_database(_config: &MarketDataIngestionConfig) -> Result<Arc<dyn DatabaseClient>, Box<dyn std::error::Error>> {
-    // In a real implementation, this would create the actual database client
-    // For now, we'll create a mock implementation
-    
+async fn initialize_database(config: &MarketDataIngestionConfig) -> Result<Arc<dyn DatabaseClient>, Box<dyn std::error::Error>> {
     info!("Initializing database connection...");
     
-    // Mock database implementation for demonstration
-        struct MockDatabaseClient;
-
-    #[async_trait::async_trait]
-    impl DatabaseClient for MockDatabaseClient {
-        async fn insert_market_data(&self, _data: &[shared_types::MarketData]) -> Result<(), database_abstraction::DatabaseError> {
-            Ok(())
-        }
-        
-        async fn get_market_data(&self, _symbol: &str, _start: chrono::DateTime<chrono::Utc>, _end: chrono::DateTime<chrono::Utc>) -> Result<Vec<shared_types::MarketData>, database_abstraction::DatabaseError> {
-            Ok(Vec::new())
-        }
-        
-        async fn get_latest_market_data(&self, _symbol: &str) -> Result<Option<shared_types::MarketData>, database_abstraction::DatabaseError> {
-            Ok(None)
-        }
-        
-        async fn insert_sentiment_data(&self, _data: &[shared_types::SentimentData]) -> Result<(), database_abstraction::DatabaseError> {
-            Ok(())
-        }
-        
-        async fn get_sentiment_data(&self, _symbol: &str, _start: chrono::DateTime<chrono::Utc>, _end: chrono::DateTime<chrono::Utc>) -> Result<Vec<shared_types::SentimentData>, database_abstraction::DatabaseError> {
-            Ok(Vec::new())
-        }
-        
-        async fn get_aggregated_sentiment(&self, _symbol: &str, _timestamp: chrono::DateTime<chrono::Utc>) -> Result<Option<shared_types::AggregatedSentiment>, database_abstraction::DatabaseError> {
-            Ok(None)
-        }
-        
-        async fn insert_features(&self, _features: &[shared_types::FeatureSet]) -> Result<(), database_abstraction::DatabaseError> {
-            Ok(())
-        }
-        
-        async fn get_features(&self, _symbol: &str, _timestamp: chrono::DateTime<chrono::Utc>) -> Result<Option<shared_types::FeatureSet>, database_abstraction::DatabaseError> {
-            Ok(None)
-        }
-        
-        async fn get_latest_features(&self, _symbol: &str) -> Result<Option<shared_types::FeatureSet>, database_abstraction::DatabaseError> {
-            Ok(None)
-        }
-        
-        async fn insert_technical_indicators(&self, _indicators: &[shared_types::TechnicalIndicators]) -> Result<(), database_abstraction::DatabaseError> {
-            Ok(())
-        }
-        
-        async fn insert_predictions(&self, _predictions: &[shared_types::PredictionResult]) -> Result<(), database_abstraction::DatabaseError> {
-            Ok(())
-        }
-        
-        async fn get_predictions(&self, _symbol: &str, _start: chrono::DateTime<chrono::Utc>, _end: chrono::DateTime<chrono::Utc>) -> Result<Vec<shared_types::PredictionResult>, database_abstraction::DatabaseError> {
-            Ok(Vec::new())
-        }
-        
-        async fn insert_prediction_outcomes(&self, _outcomes: &[shared_types::PredictionOutcome]) -> Result<(), database_abstraction::DatabaseError> {
-            Ok(())
-        }
-        
-        async fn insert_strategy_performance(&self, _performance: &[shared_types::StrategyPerformance]) -> Result<(), database_abstraction::DatabaseError> {
-            Ok(())
-        }
-        
-        async fn get_strategy_performance(&self, _strategy_name: &str, _symbol: Option<&str>, _start: chrono::DateTime<chrono::Utc>, _end: chrono::DateTime<chrono::Utc>) -> Result<Vec<shared_types::StrategyPerformance>, database_abstraction::DatabaseError> {
-            Ok(Vec::new())
-        }
-        
-        async fn health_check(&self) -> Result<database_abstraction::HealthStatus, database_abstraction::DatabaseError> {
-            Ok(database_abstraction::HealthStatus {
-                service: "mock".to_string(),
-                status: shared_types::ServiceStatus::Healthy,
-                timestamp: chrono::Utc::now(),
-                checks: Vec::new(),
-            })
-        }
-    }
+    // Create database configuration from config file
+    let db_config = DatabaseConfig {
+        clickhouse: database_abstraction::ClickHouseConfig {
+            url: std::env::var("CLICKHOUSE_URL").unwrap_or_else(|_| "http://localhost:8123".to_string()),
+            database: std::env::var("CLICKHOUSE_DATABASE").unwrap_or_else(|_| "quantumtrade".to_string()),
+            username: std::env::var("CLICKHOUSE_USERNAME").ok(),
+            password: std::env::var("CLICKHOUSE_PASSWORD").ok(),
+            connection_timeout: std::time::Duration::from_secs(30),
+            query_timeout: std::time::Duration::from_secs(60),
+            max_connections: 100,
+            retry_attempts: 3,
+        },
+        redis: database_abstraction::RedisConfig {
+            url: std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+            pool_size: 10,
+            connection_timeout: std::time::Duration::from_secs(30),
+            default_ttl: std::time::Duration::from_secs(3600),
+            max_connections: 100,
+        },
+    };
     
-    Ok(Arc::new(MockDatabaseClient))
+    // Initialize database manager
+    let db_manager = DatabaseManager::new(db_config).await?;
+    
+    // Run migrations to ensure schema is up to date
+    db_manager.run_migrations().await?;
+    
+    info!("Database connection established successfully");
+    
+    // Return the ClickHouse client as the primary database client
+    Ok(db_manager.clickhouse())
 }
 
 async fn start_background_services(
@@ -833,39 +787,3 @@ async fn shutdown_signal() {
     }
 }
 
-// Mock implementations for traits that might not be available yet
-
-// Simplified mock database client trait for compilation
-mod mock_database_abstraction {
-    use async_trait::async_trait;
-    use serde::{Serialize, Deserialize};
-    use std::collections::HashMap;
-    
-    #[derive(Debug, Serialize, Deserialize)]
-    pub enum ServiceStatus {
-        Healthy,
-        Unhealthy,
-        Unknown,
-    }
-    
-    #[derive(Debug, Serialize, Deserialize)]
-    pub struct HealthStatus {
-        pub status: ServiceStatus,
-        pub timestamp: chrono::DateTime<chrono::Utc>,
-        pub details: HashMap<String, String>,
-    }
-    
-    #[derive(Debug, thiserror::Error)]
-    pub enum DatabaseError {
-        #[error("Connection failed: {message}")]
-        ConnectionFailed { message: String },
-        
-        #[error("Query failed: {message}")]
-        QueryFailed { message: String },
-    }
-    
-    #[async_trait]
-    pub trait DatabaseClient: Send + Sync {
-        async fn health_check(&self) -> Result<HealthStatus, DatabaseError>;
-    }
-}

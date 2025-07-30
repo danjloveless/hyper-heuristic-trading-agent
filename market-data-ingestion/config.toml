@@ -34,4 +34,22 @@ volume_threshold = 1000
 batch_size = 100
 flush_interval_seconds = 60
 enable_compression = true
-retention_days = 365 
+retention_days = 365
+
+[database]
+# ClickHouse configuration
+clickhouse_url = "http://localhost:8123"
+clickhouse_database = "quantumtrade"
+clickhouse_username = "default"
+clickhouse_password = ""
+clickhouse_connection_timeout = 30
+clickhouse_query_timeout = 60
+clickhouse_max_connections = 100
+clickhouse_retry_attempts = 3
+
+# Redis configuration
+redis_url = "redis://localhost:6379"
+redis_pool_size = 10
+redis_connection_timeout = 30
+redis_default_ttl = 3600
+redis_max_connections = 100 
