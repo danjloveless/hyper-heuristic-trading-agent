@@ -1,4 +1,5 @@
-use crate::{config::*, models::*};
+use crate::models::*;
+use configuration_management::models::{AlphaVantageConfig, RateLimitConfig};
 use core_traits::*;
 use reqwest::Client;
 use std::sync::Arc;
@@ -8,7 +9,7 @@ use tracing::{debug, warn};
 
 pub struct AlphaVantageCollector {
     config: AlphaVantageConfig,
-    rate_limits: RateLimitsConfig,
+    rate_limits: RateLimitConfig,
     client: Client,
     error_handler: Arc<dyn ErrorHandler>,
     monitoring: Arc<dyn MonitoringProvider>,
@@ -19,20 +20,20 @@ pub struct AlphaVantageCollector {
 impl AlphaVantageCollector {
     pub async fn new(
         config: AlphaVantageConfig,
-        rate_limits: RateLimitsConfig,
+        rate_limits: RateLimitConfig,
         error_handler: Arc<dyn ErrorHandler>,
         monitoring: Arc<dyn MonitoringProvider>,
     ) -> ServiceResult<Self> {
         let client = Client::builder()
-            .timeout(Duration::from_secs(config.timeout_seconds))
+            .timeout(Duration::from_millis(config.timeout_ms.into()))
             .build()
             .map_err(|e| ServiceError::System {
                 message: format!("Failed to create HTTP client: {}", e),
             })?;
         
         let rate_limiter = Arc::new(RwLock::new(RateLimiter::new(
-            rate_limits.calls_per_minute,
-            rate_limits.calls_per_day,
+            rate_limits.requests_per_minute,
+            rate_limits.requests_per_day,
         )));
         
         Ok(Self {
@@ -190,11 +191,10 @@ impl AlphaVantageCollector {
         };
         
         let mut url = format!(
-            "{}?function={}&symbol={}&outputsize={}",
+            "{}?function={}&symbol={}&outputsize=compact",
             self.config.base_url,
             function,
-            symbol,
-            self.config.default_output_size
+            symbol
         );
         
         if *interval != Interval::Daily {

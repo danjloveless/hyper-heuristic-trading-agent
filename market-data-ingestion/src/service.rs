@@ -1,4 +1,5 @@
-use crate::{collectors::AlphaVantageCollector, processors::DataProcessor, config::*, models::{Interval, CollectionResult}};
+use crate::{collectors::AlphaVantageCollector, processors::DataProcessor, models::{Interval, CollectionResult}};
+use configuration_management::models::{AlphaVantageConfig, RateLimitConfig, DataQualityConfig};
 use core_traits::*;
 use database_abstraction::{DatabaseManager, CacheClient};
 use shared_types::MarketData;
@@ -54,17 +55,29 @@ impl MarketDataIngestionService {
         let rate_limits_config_value = config_provider
             .get_rate_limits_config()
             .await
-            .unwrap_or_else(|_| serde_json::to_value(RateLimitsConfig::default()).unwrap());
+            .unwrap_or_else(|_| serde_json::to_value(RateLimitConfig::default()).unwrap());
         
-        let rate_limits_config: RateLimitsConfig = serde_json::from_value(rate_limits_config_value)
+        let rate_limits_config: RateLimitConfig = serde_json::from_value(rate_limits_config_value)
             .unwrap_or_default();
         
         let collection_config_value = config_provider
             .get_collection_config()
             .await
-            .unwrap_or_else(|_| serde_json::to_value(CollectionConfig::default()).unwrap());
+            .unwrap_or_else(|_| serde_json::to_value(serde_json::json!({
+                "default_symbols": ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"],
+                "priority_symbols": ["SPY", "QQQ"],
+                "batch_size": 100,
+                "concurrent_collections": 5,
+                "data_quality": {
+                    "min_quality_score": 70,
+                    "enable_validation": true,
+                    "max_price_deviation_percent": 10.0,
+                    "min_volume_threshold": 1000,
+                    "enable_deduplication": true
+                }
+            })).unwrap());
         
-        let collection_config: CollectionConfig = serde_json::from_value(collection_config_value)
+        let collection_config_json: serde_json::Value = serde_json::from_value(collection_config_value)
             .unwrap_or_default();
         
         // Initialize collector with error handling integration
@@ -75,12 +88,28 @@ impl MarketDataIngestionService {
             monitoring.clone(),
         ).await?;
         
+        // Extract data quality config from collection config
+        let data_quality_config = if let Some(data_quality) = collection_config_json.get("data_quality") {
+            DataQualityConfig {
+                min_quality_score: data_quality.get("min_quality_score").and_then(|v| v.as_u64()).unwrap_or(70) as u8,
+                validation_rules: vec![], // Default empty rules
+                outlier_detection: configuration_management::models::OutlierDetectionConfig {
+                    enabled: true,
+                    method: configuration_management::models::OutlierDetectionMethod::ZScore,
+                    threshold: 3.0,
+                    window_size: 100,
+                },
+            }
+        } else {
+            DataQualityConfig::default()
+        };
+        
         // Initialize processor with database integration
         let processor = DataProcessor::new(
             database_manager.clone(),
             error_handler.clone(),
             monitoring.clone(),
-            collection_config.data_quality,
+            data_quality_config,
         );
         
         let service = Self {

@@ -7,13 +7,13 @@ pub mod service;
 pub mod collectors;
 pub mod processors;
 pub mod models;
-pub mod config;
+
 pub mod errors;
 pub mod config_provider;
 
 // Re-export main types
 pub use service::MarketDataIngestionService;
-pub use config::*;
+
 pub use models::*;
 pub use errors::*;
 

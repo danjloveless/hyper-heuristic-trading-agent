@@ -78,28 +78,36 @@ impl ConfigurationProvider for CoreConfigurationProvider {
                 message: format!("Failed to get API key: {}", e),
             })?;
         
-        // Create a simple alpha vantage config with the API key
-        let alpha_vantage_config = serde_json::json!({
-            "base_url": "https://www.alphavantage.co/query",
-            "api_key": api_key,
-            "timeout_seconds": 30,
-            "max_retries": 3,
-            "default_output_size": "compact"
-        });
+        // Create a simple alpha vantage config with the API key using core infrastructure structure
+        let alpha_vantage_config = configuration_management::models::AlphaVantageConfig {
+            base_url: "https://www.alphavantage.co/query".to_string(),
+            api_key,
+            rate_limit: configuration_management::models::RateLimitConfig {
+                requests_per_minute: 5,
+                requests_per_day: 500,
+                burst_size: 2,
+            },
+            timeout_ms: 30000,
+        };
         
-        Ok(alpha_vantage_config)
+        Ok(serde_json::to_value(alpha_vantage_config)
+            .map_err(|e| ServiceError::Configuration {
+                message: format!("Failed to serialize alpha vantage config: {}", e),
+            })?)
     }
     
     async fn get_rate_limits_config(&self) -> ServiceResult<Value> {
-        // Create a simple rate limits config
-        let rate_limits_config = serde_json::json!({
-            "calls_per_minute": 5,
-            "calls_per_day": 500,
-            "is_premium": false,
-            "burst_allowance": 2
-        });
+        // Create a simple rate limits config using core infrastructure structure
+        let rate_limits_config = configuration_management::models::RateLimitConfig {
+            requests_per_minute: 5,
+            requests_per_day: 500,
+            burst_size: 2,
+        };
         
-        Ok(rate_limits_config)
+        Ok(serde_json::to_value(rate_limits_config)
+            .map_err(|e| ServiceError::Configuration {
+                message: format!("Failed to serialize rate limits config: {}", e),
+            })?)
     }
     
     async fn get_collection_config(&self) -> ServiceResult<Value> {
